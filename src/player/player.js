@@ -253,6 +253,9 @@ function createPlayer(root, initialProject, options) {
       keyboard: false,
       openUrl: (url) => window.open(url, "_blank", "noopener"),
       onPageChange: () => {},
+      // Extra element types, e.g. { vehicle(el, inner, ctx) }. Kept outside
+      // this file so the player stays small; exported pages inline them.
+      renderers: {},
     },
     options || {},
   );
@@ -292,6 +295,7 @@ function createPlayer(root, initialProject, options) {
   const visible = new Map(); // runtime show/hide in play mode
   const sounds = new Map();
   const tilts = new Set();
+  const views = new Map(); // runtime vehicle view (normal / armor / xray) in play mode
 
   const page = () => project.pages[pageIndex];
   const asset = (id) => (id && project.assets[id]) || null;
@@ -426,6 +430,11 @@ function createPlayer(root, initialProject, options) {
         inner.append(tint, glare);
         break;
       }
+      default: {
+        const r = o.renderers && o.renderers[el.type];
+        if (r) r(el, inner, { mode: o.mode, animate: o.animate, asset, view: views.get(el.id) });
+        break;
+      }
       case "button": {
         inner.classList.add("ad-btn");
         inner.dataset.hover = el.hover;
@@ -473,7 +482,7 @@ function createPlayer(root, initialProject, options) {
       const [dur, ease, rest] = ANIM_TIMING[a.type];
       n.anim.style.animation = `ad-a-${a.type} calc(${dur} / ${a.speed}) ${ease} ${a.delay}s ${rest}`;
     } else n.anim.style.animation = "";
-    const contentSig = JSON.stringify([el, el.asset && asset(el.asset)?.data.length]);
+    const contentSig = JSON.stringify([el, el.asset && asset(el.asset)?.data.length, views.get(el.id) || null, o.renderers && o.renderers[el.type] ? o.animate : 0]);
     if (contentSig !== n.contentSig) {
       buildContent(el, n.inner);
       n.contentSig = contentSig;

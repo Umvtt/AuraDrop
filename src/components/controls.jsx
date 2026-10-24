@@ -1,19 +1,53 @@
 import { useCallback, useId, useRef, useState } from "react";
 
-export function Section({ icon, title, hint, children, action }) {
+const collapsedSections = (() => {
+  try {
+    return new Set(JSON.parse(localStorage.getItem("auradrop.collapsed") ?? "[]"));
+  } catch {
+    return new Set();
+  }
+})();
+
+/** Inspector card. Click the header to fold it; folds are remembered. */
+export function Section({ icon, title, hint, children, action, collapsible = true }) {
+  const [open, setOpen] = useState(() => !collapsedSections.has(title));
+  const toggle = () => {
+    setOpen((o) => {
+      if (o) collapsedSections.add(title);
+      else collapsedSections.delete(title);
+      try {
+        localStorage.setItem("auradrop.collapsed", JSON.stringify([...collapsedSections]));
+      } catch {
+        // Not remembered, that's fine.
+      }
+      return !o;
+    });
+  };
   return (
-    <section className="glass-panel rounded-2xl p-4">
-      <header className="mb-3 flex items-center gap-2">
-        <span className="text-base leading-none" aria-hidden="true">
-          {icon}
-        </span>
-        <div className="min-w-0 flex-1">
-          <h2 className="font-display text-[13px] font-semibold tracking-wide text-ink">{title}</h2>
-          {hint && <p className="text-[11px] leading-snug text-muted">{hint}</p>}
-        </div>
+    <section className={`section-card ${open ? "" : "section-closed"}`}>
+      <header className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={collapsible ? toggle : undefined}
+          aria-expanded={open}
+          className={`flex min-w-0 flex-1 items-center gap-2 text-left ${collapsible ? "cursor-pointer" : "cursor-default"}`}
+        >
+          <span className="section-icon" aria-hidden="true">
+            {icon}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-display text-[12.5px] font-semibold tracking-wide text-ink">{title}</span>
+            {hint && open && <span className="block text-[11px] leading-snug text-muted">{hint}</span>}
+          </span>
+          {collapsible && (
+            <svg width="12" height="12" viewBox="0 0 12 12" className={`flex-none text-muted transition-transform duration-300 ease-spring ${open ? "" : "-rotate-90"}`} aria-hidden="true">
+              <path d="m3 4.5 3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
         {action}
       </header>
-      <div className="flex flex-col gap-3.5">{children}</div>
+      {open && <div className="section-body mt-3 flex flex-col gap-3.5">{children}</div>}
     </section>
   );
 }

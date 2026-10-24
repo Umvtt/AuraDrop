@@ -1,5 +1,21 @@
 import { useRef, useState } from "react";
 import {
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignEndHorizontal,
+  AlignEndVertical,
+  AlignHorizontalDistributeCenter,
+  AlignStartHorizontal,
+  AlignStartVertical,
+  AlignVerticalDistributeCenter,
+  Copy,
+  Group,
+  Lock,
+  LockOpen,
+  Trash2,
+  Ungroup,
+} from "lucide-react";
+import {
   ACTION_TYPES,
   ANIMATIONS,
   BLEND_MODES,
@@ -16,18 +32,115 @@ import { Icons } from "../TitleBar.jsx";
 
 const px = (v) => `${Math.round(v)}px`;
 const pct = (v) => `${Math.round(v * 100)}%`;
-const TYPE_TITLE = { text: "Text", sticker: "Sticker", image: "Picture", shape: "Shape", glass: "Glass panel", button: "Button" };
+const TYPE_TITLE = { text: "Text", sticker: "Sticker", image: "Picture", shape: "Shape", glass: "Glass panel", button: "Button", vehicle: "Vehicle" };
 const SHAPE_LABEL = { rect: "Box", ellipse: "Circle", triangle: "Triangle", star: "Star", heart: "Heart", bubble: "Speech", arrow: "Arrow" };
 
-/** The Magic Studio: settings for the selected element, or the page. */
+/** Settings for the selection (one or many layers), or for the page. */
 export function Inspector(props) {
-  const { selected } = props;
+  const { selected, selection = [] } = props;
   return (
-    <aside className="glass-chrome flex w-[320px] flex-none flex-col overflow-hidden rounded-2xl">
-      <div className="scroll-thin flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3">
-        {selected ? <ElementPanel {...props} el={selected} /> : <PagePanel {...props} />}
+    <aside className="glass-chrome panel-in flex w-[324px] flex-none flex-col overflow-hidden rounded-2xl">
+      <div className="scroll-thin flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3" data-testid="inspector">
+        {selection.length > 1 ? (
+          <MultiPanel {...props} />
+        ) : selected ? (
+          <ElementPanel key={selected.id} {...props} el={selected} />
+        ) : (
+          <PagePanel {...props} />
+        )}
       </div>
     </aside>
+  );
+}
+
+/** Align buttons. With one layer they align to the canvas. */
+export function AlignBar({ ids, align, distribute, many }) {
+  const btn = (label, Icon, fn) => (
+    <IconButton key={label} label={label} onClick={fn}>
+      <Icon size={15} />
+    </IconButton>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-0.5 rounded-xl bg-black/25 p-1" role="toolbar" aria-label="Align">
+      {btn("Align left", AlignStartVertical, () => align(ids, "left"))}
+      {btn("Align centre", AlignCenterVertical, () => align(ids, "hcenter"))}
+      {btn("Align right", AlignEndVertical, () => align(ids, "right"))}
+      <span className="mx-0.5 h-4 w-px bg-white/10" />
+      {btn("Align top", AlignStartHorizontal, () => align(ids, "top"))}
+      {btn("Align middle", AlignCenterHorizontal, () => align(ids, "vcenter"))}
+      {btn("Align bottom", AlignEndHorizontal, () => align(ids, "bottom"))}
+      {many && (
+        <>
+          <span className="mx-0.5 h-4 w-px bg-white/10" />
+          {btn("Spread out horizontally", AlignHorizontalDistributeCenter, () => distribute(ids, "x"))}
+          {btn("Spread out vertically", AlignVerticalDistributeCenter, () => distribute(ids, "y"))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function MultiPanel({ selection, align, distribute, group, ungroup, updateMany, removeMany, duplicateMany }) {
+  const ids = selection.map((e) => e.id);
+  const groups = new Set(selection.map((e) => e.group).filter(Boolean));
+  const oneGroup = groups.size === 1 && selection.every((e) => e.group);
+  const opacity = selection[0].opacity;
+  const locked = selection.every((e) => e.locked);
+  const counts = selection.reduce((m, e) => ({ ...m, [e.type]: (m[e.type] ?? 0) + 1 }), {});
+  return (
+    <>
+      <div className="flex items-center gap-2 px-1">
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate font-display text-[15px] font-semibold">{oneGroup ? "Group" : `${selection.length} layers`}</h1>
+          <p className="truncate text-[11px] text-muted">
+            {Object.entries(counts)
+              .map(([t, n]) => `${n} ${(TYPE_TITLE[t] ?? t).toLowerCase()}${n > 1 ? "s" : ""}`)
+              .join(" · ")}
+          </p>
+        </div>
+        <IconButton label="Duplicate (Ctrl+D)" onClick={() => duplicateMany(ids)}>
+          <Copy size={15} />
+        </IconButton>
+        <IconButton label="Delete (Del)" onClick={() => removeMany(ids)} className="hover:bg-rose-500/25!">
+          <Trash2 size={15} />
+        </IconButton>
+      </div>
+      <Section icon="📐" title="Align & spread">
+        <AlignBar ids={ids} align={align} distribute={distribute} many={selection.length >= 3} />
+        <p className="text-[11px] text-muted">Spreading out needs three or more things. Groups move as one.</p>
+      </Section>
+      <Section icon="🧩" title="Group">
+        <div className="flex gap-1.5">
+          {oneGroup ? (
+            <button type="button" onClick={() => ungroup(ids)} className="chip-btn flex-1">
+              <Ungroup size={14} /> Ungroup
+            </button>
+          ) : (
+            <button type="button" onClick={() => group(ids)} className="chip-btn flex-1">
+              <Group size={14} /> Group (Ctrl+G)
+            </button>
+          )}
+          <button type="button" onClick={() => updateMany(ids, (e) => ({ ...e, locked: !locked }), { step: true })} className="chip-btn flex-1">
+            {locked ? <LockOpen size={14} /> : <Lock size={14} />} {locked ? "Unlock all" : "Lock all"}
+          </button>
+        </div>
+        <p className="text-[11px] text-muted">Click a group to select all of it, double-click to pick one layer inside.</p>
+      </Section>
+      <Section icon="🎚️" title="Together">
+        <Slider label="Opacity" value={opacity} min={0} max={1} step={0.01} onChange={(o) => updateMany(ids, (e) => ({ ...e, opacity: o }))} format={pct} />
+        <div className="flex flex-wrap gap-1">
+          {[
+            ["Straighten all", (e) => ({ ...e, rotation: 0 })],
+            ["Show all at start", (e) => ({ ...e, hidden: false })],
+            ["Stop animations", (e) => ({ ...e, anim: { ...e.anim, type: "none" } })],
+          ].map(([label, fn]) => (
+            <button key={label} type="button" onClick={() => updateMany(ids, fn, { step: true })} className="press rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[11px] hover:bg-white/[0.1]">
+              {label}
+            </button>
+          ))}
+        </div>
+      </Section>
+    </>
   );
 }
 
@@ -35,7 +148,7 @@ export function Inspector(props) {
 // Element
 // ---------------------------------------------------------------------------
 
-function ElementPanel({ el, project, page, update, remove, duplicate, chooseImage, chooseSound }) {
+function ElementPanel({ el, project, page, update, remove, duplicate, chooseImage, chooseSound, align, distribute, vehiclePanel }) {
   const set = (patch) => update(el.id, patch);
   return (
     <>
@@ -45,10 +158,10 @@ function ElementPanel({ el, project, page, update, remove, duplicate, chooseImag
           <p className="truncate text-[11px] text-muted">{el.name}</p>
         </div>
         <IconButton label="Duplicate (Ctrl+D)" onClick={() => duplicate(el.id)}>
-          {Icons.copy}
+          <Copy size={15} />
         </IconButton>
         <IconButton label="Delete (Del)" onClick={() => remove(el.id)} className="hover:bg-rose-500/25!">
-          {Icons.trash}
+          <Trash2 size={15} />
         </IconButton>
       </div>
 
@@ -58,10 +171,11 @@ function ElementPanel({ el, project, page, update, remove, duplicate, chooseImag
       {el.type === "shape" && <ShapePanel el={el} set={set} />}
       {el.type === "glass" && <GlassPanel el={el} set={set} />}
       {el.type === "button" && <ButtonPanel el={el} set={set} />}
+      {el.type === "vehicle" && vehiclePanel?.(el, set)}
 
       <ActionsPanel el={el} set={set} project={project} page={page} chooseSound={chooseSound} />
       <AnimationPanel el={el} set={set} />
-      <ArrangePanel el={el} set={set} canvas={project.canvas} />
+      <ArrangePanel el={el} set={set} canvas={project.canvas} align={align} distribute={distribute} />
     </>
   );
 }
@@ -449,9 +563,10 @@ function AnimationPanel({ el, set }) {
   );
 }
 
-function ArrangePanel({ el, set, canvas }) {
+function ArrangePanel({ el, set, canvas, align, distribute }) {
   return (
     <Section icon="📐" title="Position & size">
+      {align && <AlignBar ids={[el.id]} align={align} distribute={distribute} />}
       <div className="grid grid-cols-2 gap-1.5">
         <NumberInput label="X" value={el.x} onChange={(x) => set({ x })} />
         <NumberInput label="Y" value={el.y} onChange={(y) => set({ y })} />

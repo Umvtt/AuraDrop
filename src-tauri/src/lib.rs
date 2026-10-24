@@ -241,6 +241,56 @@ async fn read_design_file(app: AppHandle, path: String) -> Result<String, String
     Ok(text)
 }
 
+// ---------------------------------------------------------------------------
+// App storage (autosave recovery, hangar, recent files)
+// ---------------------------------------------------------------------------
+
+const MAX_STORE_BYTES: usize = 80 * 1024 * 1024;
+
+/// `<app data>/<key>.json` for a small fixed set of keys.
+fn store_path(app: &AppHandle, key: &str) -> Result<std::path::PathBuf, String> {
+    if !matches!(key, "recovery" | "hangar" | "recent") {
+        return Err("Unknown storage key.".into());
+    }
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(dir.join(format!("{key}.json")))
+}
+
+#[tauri::command]
+async fn store_read(app: AppHandle, key: String) -> Result<Option<String>, String> {
+    let path = store_path(&app, &key)?;
+    match std::fs::read_to_string(&path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Written to a temp file first, then renamed, so a crash mid-write never
+/// leaves a half-written hangar or recovery file behind.
+#[tauri::command]
+async fn store_write(app: AppHandle, key: String, text: String) -> Result<(), String> {
+    if text.len() > MAX_STORE_BYTES {
+        return Err("That's too much to store.".into());
+    }
+    let path = store_path(&app, &key)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn store_remove(app: AppHandle, key: String) -> Result<(), String> {
+    let path = store_path(&app, &key)?;
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+        _ => Ok(()),
+    }
+}
+
 #[tauri::command]
 fn take_launch_file(state: tauri::State<'_, AppState>) -> Option<String> {
     state.launch_file.lock().unwrap().take()
@@ -389,6 +439,9 @@ pub fn run() {
             install_update,
             read_design_file,
             take_launch_file,
+            store_read,
+            store_write,
+            store_remove,
         ])
         .run(tauri::generate_context!())
         .expect("error while running AuraDrop");

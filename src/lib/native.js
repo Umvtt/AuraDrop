@@ -268,3 +268,30 @@ function pickFile(accept) {
     input.click();
   });
 }
+
+// --- app storage: autosave recovery, hangar, recent files -------------------
+
+/** Read a stored JSON value ("recovery" | "hangar" | "recent"), or null. */
+export async function storeRead(key) {
+  try {
+    const text = isTauri ? await invoke("store_read", { key }) : localStorage.getItem(`auradrop.store.${key}`);
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function storeWrite(key, value) {
+  const text = JSON.stringify(value);
+  if (isTauri) return invoke("store_write", { key, text });
+  localStorage.setItem(`auradrop.store.${key}`, text);
+}
+
+export async function storeRemove(key) {
+  try {
+    if (isTauri) await invoke("store_remove", { key });
+    else localStorage.removeItem(`auradrop.store.${key}`);
+  } catch {
+    // Nothing to remove.
+  }
+}
