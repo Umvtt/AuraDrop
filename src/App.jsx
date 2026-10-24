@@ -6,16 +6,17 @@ import { Canvas } from "./components/editor/Canvas.jsx";
 import { Inspector } from "./components/editor/Inspector.jsx";
 import { LeftPanel } from "./components/editor/LeftPanel.jsx";
 import { Preview } from "./components/Preview.jsx";
-import { StartScreen } from "./components/StartScreen.jsx";
+import { Home } from "./components/Home.jsx";
 import { TitleBar } from "./components/TitleBar.jsx";
 import { UpdateGate } from "./components/UpdateGate.jsx";
 import { CommandPalette, ContextMenu, ShortcutsDialog } from "./components/Menus.jsx";
 import { Gallery, Workshop } from "./components/workshop/Workshop.jsx";
 import { useEditor } from "./hooks/useEditor.js";
 import { useHangar } from "./hooks/useHangar.js";
+import { useLibrary } from "./hooks/useLibrary.js";
 import { statCard, vehicleElement } from "./lib/vehicleCard.js";
 import { PRESETS3D } from "./vehicles3d/presets.js";
-import { createVehicle, vehicleId } from "./vehicles3d/spec.js";
+import { createVehicle, randomVehicle, vehicleId } from "./vehicles3d/spec.js";
 import { buildCommands, contextItems } from "./lib/commands.js";
 import { buildWebPage } from "./lib/exportHtml.js";
 import * as native from "./lib/native.js";
@@ -29,7 +30,7 @@ import {
   registerVehicleTemplates,
   serializeProject,
 } from "./lib/project.js";
-import { renderPng } from "./lib/renderPng.js";
+import { renderPng, renderThumb } from "./lib/renderPng.js";
 
 const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 
@@ -67,8 +68,10 @@ function imageSize(data) {
 export default function App() {
   const editor = useEditor(createProject());
   const { project, page, pageIndex, selected, selectedId, selection, selectedIds } = editor;
-  const [mode, setMode] = useState("start"); // start | edit | preview | workshop
+  const [mode, setMode] = useState("home"); // home | edit | preview | workshop
+  const [homeTab, setHomeTab] = useState("projects");
   const hangar = useHangar();
+  const library = useLibrary();
   const [workshop, setWorkshop] = useState(null); // { vehicle, context: insert | edit | browse, targetId, back }
   const [vehiclePicker, setVehiclePicker] = useState(false);
   const [menu, setMenu] = useState(null); // context menu {x, y, id}
@@ -78,19 +81,19 @@ export default function App() {
   const [rulers, setRulersState] = useState(() => readPref("rulers", true));
   const setGrid = (g) => setGridState((cur) => (writePref("grid", typeof g === "function" ? g(cur) : g), typeof g === "function" ? g(cur) : g));
   const setRulers = (r) => setRulersState((cur) => (writePref("rulers", typeof r === "function" ? r(cur) : r), typeof r === "function" ? r(cur) : r));
-  const [recent, setRecent] = useState([]);
-  const [recovery, setRecovery] = useState(null);
   const [previewPage, setPreviewPage] = useState(0);
   const [animate, setAnimate] = useState(false);
   const canvasRef = useRef(null);
   const clipboard = useRef(null);
 
   // --- file state ----------------------------------------------------------
+  // Every project lives in the library and autosaves there; `file.path` is
+  // the .auradrop file it was opened from or saved to (Ctrl+S writes it too).
   const [file, setFile] = useState({ path: null, name: null });
+  const [projectId, setProjectId] = useState(null);
+  const [saveState, setSaveState] = useState("saved"); // saved | saving | error
   const savedRef = useRef(project);
-  const dirty = mode !== "start" && project !== savedRef.current;
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
+  const dirty = mode !== "home" && project !== savedRef.current;
   const fileName = file.name ?? `${safeFileName(project.name)}.${FILE_EXTENSION}`;
 
   // --- toasts --------------------------------------------------------------
@@ -135,119 +138,162 @@ export default function App() {
     };
   }, []);
 
-  // --- recent files & crash recovery ----------------------------------------
-  useEffect(() => {
-    native.storeRead("recent").then((r) => Array.isArray(r) && setRecent(r.filter((x) => typeof x?.path === "string").slice(0, 8)));
-    native.storeRead("recovery").then((r) => r?.project && setRecovery(r));
+  // --- files & autosave -------------------------------------------------------
+  const libRef = useRef();
+  libRef.current = { project, projectId, path: file.path, library, mode };
+  const pending = useRef(Promise.resolve());
+  const thumbAt = useRef(0);
+
+  const makeThumb = useCallback((id, p) => {
+    thumbAt.current = Date.now();
+    renderThumb(p)
+      .then((t) => libRef.current.library.setThumb(id, t))
+      .catch(() => {});
   }, []);
-  const remember = useCallback((path) => {
-    if (!path || !native.isTauri) return;
-    setRecent((cur) => {
-      const next = [{ path, name: native.baseName(path), at: Date.now() }, ...cur.filter((x) => x.path !== path)].slice(0, 8);
-      native.storeWrite("recent", next).catch(() => {});
-      return next;
+
+  /** Write the current project to the library now (queued behind any save in flight). */
+  const flush = useCallback(({ thumb = false } = {}) => {
+    pending.current = pending.current.then(async () => {
+      const { project: p, projectId: id, path, library: lib, mode: m } = libRef.current;
+      if (m === "home" || m === "workshop") return id;
+      if (p === savedRef.current) {
+        if (id && thumb) makeThumb(id, p);
+        return id;
+      }
+      setSaveState("saving");
+      try {
+        const nid = await lib.save(id, p, { path });
+        savedRef.current = p;
+        libRef.current.projectId = nid;
+        setProjectId(nid);
+        setSaveState("saved");
+        if (thumb || Date.now() - thumbAt.current > 15000) makeThumb(nid, p);
+        return nid;
+      } catch (err) {
+        setSaveState("error");
+        notify(`Autosave failed: ${err.message ?? err}`, "error");
+        return id;
+      }
     });
-  }, []);
-  // Autosave a recovery copy every 20 s while there are unsaved changes.
-  const autosaveRef = useRef();
-  autosaveRef.current = { project, dirty, fileName, path: null };
+    return pending.current;
+  }, [makeThumb, notify]);
+
+  // Autosave shortly after every change.
   useEffect(() => {
-    const t = setInterval(() => {
-      const a = autosaveRef.current;
-      if (a.dirty) native.storeWrite("recovery", { savedAt: Date.now(), name: a.fileName, project: a.project }).catch(() => {});
-    }, 20000);
-    return () => clearInterval(t);
-  }, []);
+    if (!dirty) return;
+    const t = setTimeout(() => flush(), 1200);
+    return () => clearTimeout(t);
+  }, [project, dirty, flush]);
 
-  // --- files -----------------------------------------------------------------
-  const confirmDiscard = useCallback(async () => {
-    if (!dirtyRef.current) return true;
-    return native.ask("You have unsaved changes. Throw them away?", { okLabel: "Discard", cancelLabel: "Keep editing" });
-  }, []);
-
-  /** Load a project; files from disk open in Preview first. */
+  /** Load a project into the editor; files from disk open in Preview first. */
   const loadProject = useCallback(
-    (p, { path = null, name = null, preview = true } = {}) => {
+    (p, { id = null, path = null, name = null, preview = true } = {}) => {
       editor.load(p);
       savedRef.current = p;
+      libRef.current.projectId = id;
+      setProjectId(id);
       setFile({ path, name });
-      remember(path);
       setPreviewPage(0);
+      setSaveState("saved");
       setMode(preview ? "preview" : "edit");
     },
-    [editor, remember],
+    [editor],
   );
 
+  const goHome = useCallback(async (tab) => {
+    await flush({ thumb: true });
+    if (tab) setHomeTab(tab);
+    setMode("home");
+  }, [flush]);
+
+  /** Open a .auradrop file: it joins the library (or refreshes its copy there). */
   const openText = useCallback(
-    (text, path, name) => {
+    async (text, path, name) => {
       try {
-        loadProject(parseProjectFile(text), { path, name: name ?? native.baseName(path) });
+        const p = parseProjectFile(text);
+        const known = path && library.items.find((x) => x.path === path);
+        const id = await library.save(known?.id ?? null, p, { path });
+        loadProject(p, { id, path, name: name ?? native.baseName(path) });
+        makeThumb(id, p);
       } catch (err) {
         notify(err.message, "error");
       }
     },
-    [loadProject, notify],
+    [library, loadProject, makeThumb, notify],
   );
 
   const openDialog = useCallback(async () => {
-    if (!(await confirmDiscard())) return;
     try {
       const r = await native.openProject();
-      if (r) openText(r.text, r.path, r.name);
+      if (!r) return;
+      await flush({ thumb: true });
+      await openText(r.text, r.path, r.name);
     } catch (err) {
       notify(`Couldn't open the file: ${err.message ?? err}`, "error");
     }
-  }, [confirmDiscard, openText, notify]);
+  }, [flush, openText, notify]);
 
   const openPath = useCallback(
     async (path) => {
-      if (!(await confirmDiscard())) return;
       try {
-        openText(await native.readProjectPath(path), path);
+        await flush({ thumb: true });
+        await openText(await native.readProjectPath(path), path);
       } catch (err) {
         notify(`Couldn't open the file: ${err.message ?? err}`, "error");
       }
     },
-    [confirmDiscard, openText, notify],
+    [flush, openText, notify],
   );
 
-  const newProject = useCallback(async () => {
-    if (!(await confirmDiscard())) return;
-    native.storeRemove("recovery");
-    setMode("start");
-  }, [confirmDiscard]);
+  const openFromLibrary = useCallback(
+    async (id) => {
+      try {
+        const p = await library.open(id);
+        const item = library.items.find((x) => x.id === id);
+        loadProject(p, { id, path: item?.path ?? null, name: item?.path ? native.baseName(item.path) : null, preview: false });
+      } catch (err) {
+        notify(String(err.message ?? err), "error");
+      }
+    },
+    [library, loadProject, notify],
+  );
+
+  const newProject = useCallback(() => goHome("templates"), [goHome]);
 
   const createFromTemplate = useCallback(
-    (templateId, presetId) => {
-      const p = makeFromTemplate(templateId, presetId);
-      loadProject(p, { preview: false });
-      setFile({ path: null, name: null });
+    async (templateId, presetId) => {
+      await flush({ thumb: true });
+      // A fresh project joins the library on its first change.
+      loadProject(makeFromTemplate(templateId, presetId), { preview: false });
     },
-    [loadProject],
+    [flush, loadProject],
   );
 
+  /** Ctrl+S: save now, and write the .auradrop file too if there is one. */
   const save = useCallback(
     async ({ saveAs = false } = {}) => {
       const snapshot = project;
-      const text = serializeProject(snapshot);
       try {
         let path = file.path;
-        if (path && !saveAs) await native.saveProjectTo(path, text);
-        else {
-          path = await native.saveProjectAs(text, fileName);
-          if (!path) return;
+        if (saveAs || (path && native.isTauri)) {
+          const text = serializeProject(snapshot);
+          if (path && !saveAs) await native.saveProjectTo(path, text);
+          else {
+            path = await native.saveProjectAs(text, fileName);
+            if (!path) return;
+          }
+          const p = native.isTauri ? path : null;
+          libRef.current.path = p;
+          setFile({ path: p, name: native.baseName(path) });
+          savedRef.current = null; // re-save so the library remembers the path
         }
-        savedRef.current = snapshot;
-        setFile({ path: native.isTauri ? path : null, name: native.baseName(path) });
-        remember(native.isTauri ? path : null);
-        native.storeRemove("recovery");
-        setRecovery(null);
-        notify(`Saved ${native.baseName(path)}`, "success");
+        await flush({ thumb: true });
+        notify(path ? `Saved ${native.baseName(path)}` : "Saved to your projects", "success");
       } catch (err) {
         notify(`Couldn't save: ${err.message ?? err}`, "error");
       }
     },
-    [project, file.path, fileName, notify, remember],
+    [project, file.path, fileName, flush, notify],
   );
 
   const [busy, setBusy] = useState(null);
@@ -418,7 +464,7 @@ export default function App() {
     const h = handlersRef.current;
     if (item.kind === "project") return item.path ? h.openPath(item.path) : null;
     if (h.mode === "preview") return h.notify("Switch to ✏️ Edit to add pictures and sounds.");
-    if (h.mode === "start") h.createFromTemplate("blank");
+    if (h.mode === "home") await h.createFromTemplate("blank");
     const c = canvasRef.current;
     const el = c?.elementAt(x, y) ?? null;
     const at = c?.isOverCanvas(x, y) ? c.toCanvas(x, y) : null;
@@ -521,7 +567,7 @@ export default function App() {
   }, [editor]);
 
   const openWorkshop = useCallback((vehicle, context = "browse", targetId = null) => {
-    setWorkshop({ vehicle: structuredClone(vehicle ?? createVehicle("tank", { name: "My tank" })), context, targetId, back: mode === "workshop" ? "start" : mode });
+    setWorkshop({ vehicle: structuredClone(vehicle ?? createVehicle("tank", { name: "My tank" })), context, targetId, back: mode === "workshop" ? "home" : mode });
     setMode("workshop");
   }, [mode]);
 
@@ -550,6 +596,7 @@ export default function App() {
         p.pages[0].bg = { ...p.pages[0].bg, type: "gradient", colors: ["#1f2937", "#0b0c12"], angle: 160 };
         p.pages[0].elements = statCard(vehicle, p.canvas);
         loadProject(p, { preview: false });
+        savedRef.current = null;
       }
       setWorkshop(null);
     },
@@ -570,11 +617,11 @@ export default function App() {
         fn();
       };
       if (k.mode === "workshop") return;
-      if (e.key === "F5" && k.mode !== "start") return run(() => setMode((m) => (m === "edit" ? "preview" : "edit")));
+      if (e.key === "F5" && k.mode !== "home") return run(() => setMode((m) => (m === "edit" ? "preview" : "edit")));
       if (ctrl && key === "k") return run(() => setPalette((p) => !p));
       if (e.key === "F1" || (e.key === "?" && !typing)) return run(() => setShortcuts(true));
       if (ctrl) {
-        if (key === "s" && k.mode !== "start") return run(() => k.save({ saveAs: e.shiftKey }));
+        if (key === "s" && k.mode !== "home") return run(() => k.save({ saveAs: e.shiftKey }));
         if (key === "o") return run(k.openDialog);
         if (key === "n") return run(k.newProject);
       }
@@ -619,8 +666,9 @@ export default function App() {
   }, []);
 
   const closeWindow = useCallback(async () => {
-    if (await confirmDiscard()) native.appWindow.close();
-  }, [confirmDiscard]);
+    await flush();
+    native.appWindow.close();
+  }, [flush]);
 
   const commitText = useCallback(
     (el, value) => {
@@ -631,7 +679,7 @@ export default function App() {
     [editor],
   );
 
-  const app = { editor, project, page, selection, mode, setMode, grid, setGrid, rulers, setRulers, animate, setAnimate, canvasRef, copy, paste, save, openDialog, newProject, exportPng, exportHtml, onAdd, setShortcuts, setVehiclePicker, openWorkshop, notify };
+  const app = { goHome, editor, project, page, selection, mode, setMode, grid, setGrid, rulers, setRulers, animate, setAnimate, canvasRef, copy, paste, save, openDialog, newProject, exportPng, exportHtml, onAdd, setShortcuts, setVehiclePicker, openWorkshop, notify };
   const commands = buildCommands(app);
 
   const vehiclePanel = (el, set) => (
@@ -642,8 +690,10 @@ export default function App() {
     <div className="relative flex h-full flex-col">
       <TitleBar
         mode={mode}
-        fileName={mode === "start" ? "" : mode === "workshop" ? "Vehicle Workshop" : fileName}
-        dirty={dirty && mode !== "workshop"}
+        fileName={mode === "home" ? "" : mode === "workshop" ? "Vehicle Workshop" : project.name}
+        saveState={mode === "edit" || mode === "preview" ? (dirty && saveState === "saved" ? "pending" : saveState) : null}
+        filePath={file.path}
+        onHome={mode === "home" ? null : () => (mode === "workshop" ? (setWorkshop(null), setHomeTab("workshop"), setMode("home")) : goHome())}
         canUndo={editor.canUndo}
         canRedo={editor.canRedo}
         onUndo={editor.undo}
@@ -667,26 +717,18 @@ export default function App() {
         }}
       />
 
-      {mode === "start" && (
-        <StartScreen
+      {mode === "home" && (
+        <Home
+          tab={homeTab}
+          onTab={setHomeTab}
+          library={library}
+          hangar={hangar}
+          onOpenProject={openFromLibrary}
           onCreate={createFromTemplate}
-          onOpen={openDialog}
-          onOpenPath={openPath}
-          onWorkshop={() => openWorkshop(PRESETS3D[0], "browse")}
-          onNewVehicle={() => openWorkshop(createVehicle("tank", { name: "My tank" }), "browse")}
-          recent={recent}
-          recovery={recovery}
-          onRecover={() => {
-            loadProject(native.isTauri ? recovery.project : recovery.project, { preview: false });
-            setFile({ path: null, name: recovery.name });
-            savedRef.current = null;
-            setRecovery(null);
-          }}
-          onDismissRecovery={() => {
-            native.storeRemove("recovery");
-            setRecovery(null);
-          }}
-          onClose={dirty || project.pages[0].elements.length ? () => setMode("edit") : null}
+          onImport={openDialog}
+          onWorkshop={(v) => openWorkshop(v, "browse")}
+          onRandomTank={(e) => openWorkshop(randomVehicle(!!e?.shiftKey), "browse")}
+          onConfirmDelete={(name) => native.ask(`Delete “${name}”? This can't be undone.`, { okLabel: "Delete", cancelLabel: "Keep it" })}
         />
       )}
 
@@ -698,7 +740,7 @@ export default function App() {
           notify={notify}
           onDone={finishWorkshop}
           onClose={() => {
-            setMode(workshop.back === "workshop" ? "start" : workshop.back);
+            setMode(workshop.back === "workshop" ? "home" : workshop.back);
             setWorkshop(null);
           }}
         />

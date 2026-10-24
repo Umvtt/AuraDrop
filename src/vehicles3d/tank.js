@@ -827,7 +827,7 @@ function buildTurret(spec, lay, M, out) {
     deform(geo, (v) => {
       const k = v.y / Ht;
       if (dome) {
-        const sc = 1 - dome * Math.pow(k, 1.8);
+        const sc = 1 - dome * Math.pow(Math.max(0, k), 1.8);
         v.x = v.x * sc;
         v.z = v.z * sc;
       }

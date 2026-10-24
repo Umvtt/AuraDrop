@@ -247,13 +247,42 @@ async fn read_design_file(app: AppHandle, path: String) -> Result<String, String
 
 const MAX_STORE_BYTES: usize = 80 * 1024 * 1024;
 
-/// `<app data>/<key>.json` for a small fixed set of keys.
+/// Allowed keys: a few fixed ones, plus `project-<id>` for the projects library.
+fn valid_store_key(key: &str) -> bool {
+    if matches!(key, "recovery" | "hangar" | "recent" | "projects" | "prefs") {
+        return true;
+    }
+    key.strip_prefix("project-").is_some_and(|id| {
+        !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    })
+}
+
+/// `<app data>/<key>.json`; library projects live in `<app data>/projects/`.
 fn store_path(app: &AppHandle, key: &str) -> Result<std::path::PathBuf, String> {
-    if !matches!(key, "recovery" | "hangar" | "recent") {
+    if !valid_store_key(key) {
         return Err("Unknown storage key.".into());
     }
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    Ok(dir.join(format!("{key}.json")))
+    Ok(match key.strip_prefix("project-") {
+        Some(id) => dir.join("projects").join(format!("{id}.auradrop")),
+        None => dir.join(format!("{key}.json")),
+    })
+}
+
+#[cfg(test)]
+mod store_tests {
+    use super::valid_store_key;
+
+    #[test]
+    fn only_known_keys() {
+        assert!(valid_store_key("hangar"));
+        assert!(valid_store_key("project-p1abc_9-x"));
+        assert!(!valid_store_key("project-"));
+        assert!(!valid_store_key("project-../evil"));
+        assert!(!valid_store_key("project-a/b"));
+        assert!(!valid_store_key("../hangar"));
+        assert!(!valid_store_key("other"));
+    }
 }
 
 #[tauri::command]

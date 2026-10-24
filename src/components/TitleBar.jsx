@@ -105,9 +105,13 @@ function SettingsMenu({ anchorRef, backdrop, backdropApplied, onBackdrop, minimi
   );
 }
 
+const SAVE_LABEL = { pending: "Saving soon…", saving: "Saving…", saved: "All changes saved", error: "Not saved" };
+
 export function TitleBar({
   fileName,
-  dirty,
+  saveState,
+  filePath,
+  onHome,
   canUndo,
   canRedo,
   onUndo,
@@ -139,17 +143,24 @@ export function TitleBar({
       data-tauri-drag-region
       className="relative z-40 flex h-12 flex-none items-center gap-1 pr-1 pl-3"
     >
-      <div data-tauri-drag-region className="pointer-events-none flex items-center gap-2.5 pr-3">
-        <Logo />
-        <span className="font-display text-[14px] font-semibold tracking-tight">
-          Aura<span className="bg-gradient-to-r from-accent to-accent-2 bg-clip-text text-transparent">Drop</span>
-        </span>
-      </div>
+      {onHome ? (
+        <button type="button" onClick={onHome} title="Home: all your projects" data-testid="home-btn" className="press focus-ring mr-2 flex items-center gap-2 rounded-xl py-1 pr-3 pl-1 hover:bg-white/[0.06]">
+          <Logo />
+          <span className="text-[12.5px] font-medium text-ink/85">Home</span>
+        </button>
+      ) : (
+        <div data-tauri-drag-region className="pointer-events-none flex items-center gap-2.5 pr-3">
+          <Logo />
+          <span className="font-display text-[14px] font-semibold tracking-tight">
+            Aura<span className="bg-gradient-to-r from-accent to-accent-2 bg-clip-text text-transparent">Drop</span>
+          </span>
+        </div>
+      )}
 
       <div className="flex items-center gap-0.5 rounded-xl bg-white/[0.04] p-0.5">
         <IconButton label="New project (Ctrl+N)" onClick={onNew}>{Icons.file}</IconButton>
         <IconButton label="Open project (Ctrl+O)" onClick={onOpen}>{Icons.open}</IconButton>
-        {mode !== "start" && <IconButton label="Save .auradrop (Ctrl+S)" onClick={onSave}>{Icons.save}</IconButton>}
+        {(mode === "edit" || mode === "preview") && <IconButton label="Save (Ctrl+S) · Ctrl+Shift+S saves as a file" onClick={onSave}>{Icons.save}</IconButton>}
         {mode === "edit" && (
           <>
             <span className="mx-0.5 h-4 w-px bg-white/10" />
@@ -163,7 +174,12 @@ export function TitleBar({
         <span data-tauri-drag-region className="truncate text-[12px] text-muted">
           {fileName}
         </span>
-        {dirty && <span className="size-1.5 flex-none rounded-full bg-accent" title="Unsaved changes" />}
+        {saveState && (
+          <span data-testid="save-state" title={filePath ? `Also saved to ${filePath} when you press Ctrl+S` : "Autosaved to your projects"} className={`flex flex-none items-center gap-1.5 text-[11px] ${saveState === "error" ? "text-red-300" : "text-muted/80"}`}>
+            <span className={`size-1.5 rounded-full ${saveState === "saved" ? "bg-emerald-400/80" : saveState === "error" ? "bg-red-400" : "bg-accent"}`} />
+            {SAVE_LABEL[saveState]}
+          </span>
+        )}
       </div>
 
       {(mode === "edit" || mode === "preview") && onPalette && (

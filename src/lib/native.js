@@ -269,9 +269,9 @@ function pickFile(accept) {
   });
 }
 
-// --- app storage: autosave recovery, hangar, recent files -------------------
+// --- app storage: projects library, hangar, prefs ---------------------------
 
-/** Read a stored JSON value ("recovery" | "hangar" | "recent"), or null. */
+/** Read a stored JSON value ("projects", "project-<id>", "hangar"…), or null. */
 export async function storeRead(key) {
   try {
     const text = isTauri ? await invoke("store_read", { key }) : localStorage.getItem(`auradrop.store.${key}`);

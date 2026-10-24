@@ -13,11 +13,26 @@ import { loadFonts, usedFonts } from "./fonts.js";
  * @returns {Promise<Uint8Array>} PNG bytes
  */
 export async function renderPng(project, pageIndex = 0, { scale } = {}) {
-  const page = project.pages[pageIndex];
   const { w, h } = project.canvas;
   // Small canvases (classic 800px memes) export at 2× so they stay crisp;
   // standard sizes like 1080 posts keep their exact pixel size.
-  const s = scale ?? (Math.max(w, h) < 1000 ? 2 : 1);
+  const canvas = await renderCanvas(project, pageIndex, scale ?? (Math.max(w, h) < 1000 ? 2 : 1));
+  const blob = await new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't encode the PNG."))), "image/png"),
+  );
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+/** A small JPEG data URL of the first page, for the projects library. */
+export async function renderThumb(project, size = 360) {
+  const { w, h } = project.canvas;
+  const canvas = await renderCanvas(project, 0, size / Math.max(w, h));
+  return canvas.toDataURL("image/jpeg", 0.78);
+}
+
+async function renderCanvas(project, pageIndex, s) {
+  const page = project.pages[pageIndex];
+  const { w, h } = project.canvas;
   await loadFonts(usedFonts(project));
   const images = await loadImages(project, page);
 
@@ -36,11 +51,7 @@ export async function renderPng(project, pageIndex = 0, { scale } = {}) {
     DRAW[el.type]?.(ctx, el, { images, canvas, s });
     ctx.restore();
   }
-
-  const blob = await new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't encode the PNG."))), "image/png"),
-  );
-  return new Uint8Array(await blob.arrayBuffer());
+  return canvas;
 }
 
 // ---------------------------------------------------------------------------
