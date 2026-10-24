@@ -1,0 +1,97 @@
+name: Release
+
+# Push a tag like v0.1.0 to build AuraDrop-Setup.exe on Windows, test it and
+# publish it as a GitHub Release. Run it by hand to build and test only.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+            installer/src-tauri -> target
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} doesn't match app version $version"
+          }
+
+      - name: Unit tests
+        run: |
+          npm test
+          npm run installer:vite-build
+          cargo test --manifest-path installer/src-tauri/Cargo.toml
+
+      - name: Build installer
+        run: npm run installer:build
+
+      # A real Windows install and uninstall, using setup's silent mode.
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist-installer\AuraDrop-Setup-*.exe).FullName
+          $dir = "$env:LOCALAPPDATA\AuraDrop"
+          $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AuraDrop"
+
+          $p = Start-Process $setup -ArgumentList '--silent --autostart' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Install failed with exit code $($p.ExitCode)" }
+          if (-not (Test-Path "$dir\auradrop.exe")) { throw "auradrop.exe wasn't installed" }
+          if (-not (Test-Path $uninstallKey)) { throw "No Add/Remove Programs entry" }
+          if ((Get-ItemProperty "HKCU:\Software\Classes\.auradrop").'(default)' -ne 'AuraDrop.Design') { throw "No .auradrop association" }
+          if (-not (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name AuraDrop -ErrorAction SilentlyContinue)) { throw "No autostart entry" }
+
+          $p = Start-Process $setup -ArgumentList '--silent --uninstall' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Uninstall failed with exit code $($p.ExitCode)" }
+          if (Test-Path $dir) { throw "Install folder was left behind" }
+          if (Test-Path $uninstallKey) { throw "Add/Remove Programs entry was left behind" }
+          if (Test-Path "HKCU:\Software\Classes\.auradrop") { throw "Association was left behind" }
+          Write-Host "Install and uninstall OK"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AuraDrop-Setup
+          path: dist-installer/*.exe
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-installer/*.exe
+          body: |
+            ## AuraDrop ${{ github.ref_name }}
+
+            A playful glass UI builder for Windows: design frosted-glass cards with live 3D tilt and mesh-gradient auras, then copy them out as CSS, HTML or Tailwind, or save a PNG.
+
+            ### Install
+            1. Download **AuraDrop-Setup-*.exe** below.
+            2. Run it. Windows SmartScreen may warn because the installer isn't code-signed yet: click **More info → Run anyway**.
+            3. Pick your options and click **Install**. No administrator rights needed.
+
+            Needs Windows 10 or 11 (64-bit). Setup installs Microsoft Edge WebView2 if your PC doesn't have it yet.
+
+            Unattended install: `AuraDrop-Setup.exe --silent` (see `--help`).
