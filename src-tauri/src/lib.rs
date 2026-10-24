@@ -45,6 +45,9 @@ fn main_window(app: &AppHandle) -> Option<WebviewWindow> {
 
 fn reveal(app: &AppHandle) {
     if let Some(window) = main_window(app) {
+        // Restore before showing: showing a still-minimized window emits a
+        // "minimized" resize, which minimize-to-tray would hide again.
+        let _ = window.unminimize();
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -140,7 +143,12 @@ fn set_minimize_to_tray(app: AppHandle, state: tauri::State<'_, AppState>, enabl
     if let Some(item) = state.tray_toggle.lock().unwrap().as_ref() {
         let _ = item.set_checked(enabled);
     }
-    let _ = app.emit("prefs-changed", Prefs { minimize_to_tray: enabled });
+    let _ = app.emit(
+        "prefs-changed",
+        Prefs {
+            minimize_to_tray: enabled,
+        },
+    );
 }
 
 #[tauri::command]
@@ -199,9 +207,7 @@ async fn read_design_file(app: AppHandle, path: String) -> Result<String, String
         return Err("That design file is too large.".into());
     }
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    app.fs_scope()
-        .allow_file(path)
-        .map_err(|e| e.to_string())?;
+    app.fs_scope().allow_file(path).map_err(|e| e.to_string())?;
     Ok(text)
 }
 
@@ -261,7 +267,12 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 .and_then(|item| item.is_checked().ok())
                 .unwrap_or(!state.minimize_to_tray.load(Ordering::Relaxed));
             state.minimize_to_tray.store(enabled, Ordering::Relaxed);
-            let _ = app.emit("prefs-changed", Prefs { minimize_to_tray: enabled });
+            let _ = app.emit(
+                "prefs-changed",
+                Prefs {
+                    minimize_to_tray: enabled,
+                },
+            );
         }
         "quit" => app.exit(0),
         _ => {}

@@ -53,7 +53,7 @@ export function Stage({ design, dropTarget, onStarterLook, onSurprise, onReset }
               )}
             </div>
             {dropTarget === "background" && (
-              <div className="pointer-events-none absolute inset-2 grid place-items-center rounded-[inherit] border-2 border-dashed border-white/80 bg-black/30 text-[13px] font-semibold">
+              <div className="pointer-events-none absolute inset-2 grid place-items-center rounded-[inherit] border-2 border-dashed border-white/80 bg-[#08090e]/75 text-[13px] font-semibold backdrop-blur-sm">
                 Drop to use as card background
               </div>
             )}
@@ -64,13 +64,13 @@ export function Stage({ design, dropTarget, onStarterLook, onSurprise, onReset }
       {/* Starter looks */}
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-3">
         <div className="pointer-events-auto flex items-center gap-1.5 rounded-2xl border border-white/10 bg-black/30 p-1.5 backdrop-blur-xl">
-          <span className="px-1.5 text-[11px] font-semibold tracking-wide text-muted">Starter looks</span>
+          <span className="px-1.5 text-[11px] font-semibold tracking-wide whitespace-nowrap text-muted @max-[880px]:hidden">Starter looks</span>
           {STARTER_LOOKS.map((look) => (
             <button
               key={look.id}
               type="button"
               onClick={() => onStarterLook(look)}
-              className="press focus-ring group flex items-center gap-1.5 rounded-xl px-2 py-1 text-[11.5px] font-medium text-ink/85 hover:bg-white/10 hover:text-white"
+              className="press focus-ring group flex items-center gap-1.5 rounded-xl px-2 py-1 text-[11.5px] font-medium whitespace-nowrap text-ink/85 hover:bg-white/10 hover:text-white"
             >
               <span
                 className="size-3.5 rounded-full border border-white/40 transition-[scale] duration-300 ease-spring group-hover:scale-125"
@@ -84,17 +84,20 @@ export function Stage({ design, dropTarget, onStarterLook, onSurprise, onReset }
           <button
             type="button"
             onClick={onSurprise}
-            className="press focus-ring flex items-center gap-1.5 rounded-xl border border-white/10 bg-gradient-to-r from-accent/30 to-accent-2/30 px-3 py-1.5 text-[12px] font-semibold text-white backdrop-blur-xl hover:from-accent/45 hover:to-accent-2/45"
+            title="Surprise me"
+            className="press focus-ring flex items-center gap-1.5 rounded-xl whitespace-nowrap border border-white/10 bg-gradient-to-r from-accent/30 to-accent-2/30 px-3 py-1.5 text-[12px] font-semibold text-white backdrop-blur-xl hover:from-accent/45 hover:to-accent-2/45"
           >
-            {Icons.dice} Surprise me
+            {Icons.dice}
+            <span className="@max-[880px]:sr-only">Surprise me</span>
           </button>
           <button
             type="button"
             onClick={onReset}
             title="Back to the default card"
-            className="press focus-ring flex items-center gap-1.5 rounded-xl border border-white/10 bg-black/30 px-2.5 py-1.5 text-[12px] font-medium text-ink/80 backdrop-blur-xl hover:text-white"
+            className="press focus-ring flex items-center gap-1.5 rounded-xl border border-white/10 bg-black/30 px-2.5 py-1.5 whitespace-nowrap text-[12px] font-medium text-ink/80 backdrop-blur-xl hover:text-white"
           >
-            {Icons.reset} Reset
+            {Icons.reset}
+            <span className="@max-[880px]:sr-only">Reset</span>
           </button>
         </div>
       </div>

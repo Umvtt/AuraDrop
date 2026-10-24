@@ -57,14 +57,14 @@ export function ExportBar({ design, onCopy, onExportPng, exporting }) {
       )}
 
       <div className="glass-chrome flex h-14 items-center gap-2 rounded-2xl px-2.5">
-        <span className="px-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">Copy code</span>
+        <span className="px-1.5 text-[11px] font-semibold tracking-wider whitespace-nowrap text-muted uppercase @max-[880px]:hidden">Copy code</span>
         {FORMATS.map((f) => (
           <button
             key={f.id}
             type="button"
             title={f.hint}
             onClick={() => copy(f.id)}
-            className={`press focus-ring flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-[12.5px] font-semibold ${
+            className={`press focus-ring flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-[12.5px] font-semibold whitespace-nowrap @max-[880px]:px-2.5 ${
               copied === f.id
                 ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-200"
                 : "border-white/10 bg-white/[0.06] text-ink hover:bg-white/[0.11]"
@@ -78,28 +78,31 @@ export function ExportBar({ design, onCopy, onExportPng, exporting }) {
           type="button"
           onClick={() => setPeek((p) => (p ? null : "css"))}
           aria-pressed={!!peek}
-          className={`press focus-ring flex items-center gap-1.5 rounded-xl px-3 py-2 text-[12.5px] font-medium ${
+          title={peek ? "Hide code" : "Peek at code"}
+          className={`press focus-ring flex items-center gap-1.5 rounded-xl px-3 py-2 text-[12.5px] font-medium whitespace-nowrap ${
             peek ? "bg-white/12 text-white" : "text-muted hover:bg-white/[0.06] hover:text-ink"
           }`}
         >
-          {Icons.code} {peek ? "Hide code" : "Peek at code"}
+          {Icons.code}
+          <span className="@max-[880px]:sr-only">{peek ? "Hide code" : "Peek at code"}</span>
         </button>
 
         <div className="ml-auto flex items-center gap-2">
-          <label className="flex cursor-pointer items-center gap-2 text-[12px] text-muted hover:text-ink">
+          <label className="flex cursor-pointer items-center gap-2 text-[12px] whitespace-nowrap text-muted hover:text-ink">
             <input
               type="checkbox"
               checked={withScene}
               onChange={(e) => setWithScene(e.target.checked)}
               className="size-3.5 accent-violet-400"
             />
-            Include background
+            <span className="@max-[880px]:hidden">Include background</span>
+            <span className="@min-[880px]:hidden">Background</span>
           </label>
           <button
             type="button"
             disabled={exporting}
             onClick={() => onExportPng(withScene)}
-            className="press focus-ring flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-accent to-accent-2 px-4 py-2 text-[12.5px] font-semibold text-[#0b0c12] shadow-[0_6px_20px_rgba(167,139,250,0.35)] hover:brightness-110 disabled:opacity-60"
+            className="press focus-ring flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-accent to-accent-2 px-4 py-2 whitespace-nowrap text-[12.5px] font-semibold text-[#0b0c12] shadow-[0_6px_20px_rgba(167,139,250,0.35)] hover:brightness-110 disabled:opacity-60"
           >
             {Icons.image} {exporting ? "Exporting…" : "Export PNG"}
           </button>

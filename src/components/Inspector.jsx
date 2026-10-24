@@ -268,7 +268,7 @@ function ImageRow({ label, value, onPick, onClear, round }) {
         className={`size-9 flex-none border border-white/15 bg-white/5 bg-cover bg-center ${round ? "rounded-full" : "rounded-lg"}`}
         style={value ? { backgroundImage: `url("${value}")` } : undefined}
       />
-      <span className="flex-1 text-[12px] font-medium text-ink/90">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink/90">{label}</span>
       <button
         type="button"
         onClick={onPick}

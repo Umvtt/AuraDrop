@@ -59,10 +59,11 @@ function WindowButton({ label, onClick, danger, children }) {
   );
 }
 
-function SettingsMenu({ backdrop, backdropApplied, onBackdrop, minimizeToTray, onMinimizeToTray, onClose }) {
-  const ref = useRef(null);
+function SettingsMenu({ anchorRef, backdrop, backdropApplied, onBackdrop, minimizeToTray, onMinimizeToTray, onClose }) {
   useEffect(() => {
-    const onDown = (e) => !ref.current?.contains(e.target) && onClose();
+    // The anchor includes the gear button, so clicking it again toggles the
+    // menu closed instead of closing and immediately reopening it.
+    const onDown = (e) => !anchorRef.current?.contains(e.target) && onClose();
     const onKey = (e) => e.key === "Escape" && onClose();
     window.addEventListener("pointerdown", onDown);
     window.addEventListener("keydown", onKey);
@@ -70,11 +71,10 @@ function SettingsMenu({ backdrop, backdropApplied, onBackdrop, minimizeToTray, o
       window.removeEventListener("pointerdown", onDown);
       window.removeEventListener("keydown", onKey);
     };
-  }, [onClose]);
+  }, [anchorRef, onClose]);
 
   return (
     <div
-      ref={ref}
       className="pop-in glass-chrome absolute top-11 right-0 z-50 w-72 rounded-2xl p-3 backdrop-blur-2xl"
       style={{ background: "rgba(18, 19, 28, 0.92)" }}
     >
@@ -120,6 +120,7 @@ export function TitleBar({
 }) {
   const [maximized, setMaximized] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const settingsRef = useRef(null);
 
   useEffect(() => {
     let unlisten = () => {};
@@ -157,11 +158,11 @@ export function TitleBar({
         {dirty && <span className="size-1.5 flex-none rounded-full bg-accent" title="Unsaved changes" />}
       </div>
 
-      <div className="relative">
+      <div ref={settingsRef} className="relative">
         <IconButton label="Settings" onClick={() => setMenuOpen((o) => !o)} active={menuOpen}>
           {Icons.gear}
         </IconButton>
-        {menuOpen && <SettingsMenu {...settings} onClose={() => setMenuOpen(false)} />}
+        {menuOpen && <SettingsMenu {...settings} anchorRef={settingsRef} onClose={() => setMenuOpen(false)} />}
       </div>
       <span className="mx-1 h-4 w-px bg-white/10" />
       <WindowButton label="Minimize" onClick={() => appWindow.minimize()}>

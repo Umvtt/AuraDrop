@@ -319,7 +319,7 @@ export default function App() {
       />
 
       <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
-        <main className="flex min-w-0 flex-1 flex-col gap-2">
+        <main className="@container flex min-w-0 flex-1 flex-col gap-2">
           <Stage
             design={design}
             dropTarget={dropTarget}
