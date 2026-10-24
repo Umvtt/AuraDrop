@@ -196,7 +196,8 @@ function textShadow(el) {
   return out.join(",") || "none";
 }
 
-function imageFilter(f) {
+/** CSS filter for a picture; `outline` traces its see-through edges like a sticker. k scales px (canvas exports). */
+function imageFilter(f, outline, k = 1) {
   if (!f) return "none";
   const parts = [];
   if (f.brightness !== 100) parts.push(`brightness(${f.brightness}%)`);
@@ -204,7 +205,13 @@ function imageFilter(f) {
   if (f.saturate !== 100) parts.push(`saturate(${f.saturate}%)`);
   if (f.hue) parts.push(`hue-rotate(${f.hue}deg)`);
   if (f.grayscale) parts.push(`grayscale(${f.grayscale}%)`);
-  if (f.blur) parts.push(`blur(${f.blur}px)`);
+  if (f.blur) parts.push(`blur(${f.blur * k}px)`);
+  if (outline?.width > 0) {
+    const w = outline.width * k;
+    const c = outline.color;
+    // Four hard shadows, each building on the last, make an outline that follows the shape.
+    parts.push(`drop-shadow(${w}px 0 0 ${c}) drop-shadow(${-w}px 0 0 ${c}) drop-shadow(0 ${w}px 0 ${c}) drop-shadow(0 ${-w}px 0 ${c})`);
+  }
   return parts.join(" ") || "none";
 }
 
@@ -404,7 +411,7 @@ function createPlayer(root, initialProject, options) {
           img.alt = "";
           img.draggable = false;
           img.style.objectFit = el.fit;
-          img.style.filter = imageFilter(el.filters);
+          img.style.filter = imageFilter(el.filters, el.outline);
           if (el.flipX || el.flipY) img.style.transform = `scale(${el.flipX ? -1 : 1}, ${el.flipY ? -1 : 1})`;
           if (masked) {
             const clip = make("div");

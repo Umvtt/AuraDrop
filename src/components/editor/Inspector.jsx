@@ -330,6 +330,9 @@ function ImagePanel({ el, set, project, chooseImage, editPicture }) {
         <Toggle label="Flip ↕" checked={el.flipY} onChange={(flipY) => set({ flipY })} />
       </div>
       <Toggle label="Drop shadow" checked={el.shadow} onChange={(shadow) => set({ shadow })} />
+      <Slider label="Sticker outline" value={el.outline.width} min={0} max={30} onChange={(width) => set({ outline: { width } })} format={px} left="None" right="Thick" />
+      {el.outline.width > 0 && <ColorInput label="Outline colour" value={el.outline.color} onChange={(color) => set({ outline: { color } })} />}
+      {el.outline.width > 0 && !el.original && <p className="-mt-1 text-[11px] text-muted">Follows see-through edges: try “Remove background…” first.</p>}
       <Slider label="Border" value={el.border.width} min={0} max={40} onChange={(width) => set({ border: { width } })} format={px} />
       {el.border.width > 0 && <ColorInput label="Border colour" value={el.border.color} onChange={(color) => set({ border: { color } })} />}
       <SubHeading>Filters</SubHeading>

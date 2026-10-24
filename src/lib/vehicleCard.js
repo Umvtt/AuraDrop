@@ -1,6 +1,6 @@
 import { createElement, newId } from "./project.js";
 import { NATIONS } from "../vehicles3d/spec.js";
-import { computeStats } from "../vehicles3d/stats.js";
+import { computeStats, jokeStats } from "../vehicles3d/stats.js";
 
 /** A vehicle element sized to fit `box` (canvas units). */
 export function vehicleElement(vehicle, canvas, box) {
@@ -40,6 +40,10 @@ export function statCard(vehicle, canvas) {
   }
   const lines = st.rows.slice(0, 7).map((r) => `${r.label}: ${r.text}`).join("\n");
   els.push(createElement("text", canvas, { text: lines, size: Math.round(u * 2.3), weight: 600, align: "left", lineHeight: 1.6, x: x + W * 0.64, y: y + H * 0.26, w: W * 0.33, h: H * 0.66, shadow: { on: false }, color: "#eef0ff", name: "Stats" }));
+  const jokes = jokeStats(vehicle);
+  if (jokes.length) {
+    els.push(createElement("text", canvas, { text: jokes.slice(0, 2).join("   ·   "), size: Math.round(u * 1.9), weight: 600, align: "center", color: "#fde68a", x: x + u * 3, y: y + H - u * 6.2, w: W - u * 6, h: u * 4.5, shadow: { on: false }, name: "Joke stats" }));
+  }
   for (const e of els) e.group = g;
   return els;
 }

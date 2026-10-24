@@ -3,7 +3,7 @@
 // same model and geometry the player uses (shape paths, gradient lines,
 // glass tint spots), including real frosted blur for glass.
 
-import { EMOJI_FONT, SPOTS, fontStack, gradientLine, rgba, shapePath } from "../player/player.js";
+import { EMOJI_FONT, SPOTS, fontStack, gradientLine, imageFilter, rgba, shapePath } from "../player/player.js";
 import { loadFonts, usedFonts } from "./fonts.js";
 
 /**
@@ -179,16 +179,7 @@ const DRAW = {
     ctx.roundRect(0, 0, el.w, el.h, Math.min(el.radius, el.w / 2, el.h / 2));
     ctx.clip();
     const f = el.filters;
-    ctx.filter = [
-      f.brightness !== 100 && `brightness(${f.brightness}%)`,
-      f.contrast !== 100 && `contrast(${f.contrast}%)`,
-      f.saturate !== 100 && `saturate(${f.saturate}%)`,
-      f.hue && `hue-rotate(${f.hue}deg)`,
-      f.grayscale && `grayscale(${f.grayscale}%)`,
-      f.blur && `blur(${f.blur}px)`,
-    ]
-      .filter(Boolean)
-      .join(" ") || "none";
+    ctx.filter = imageFilter(f, el.outline, s);
     if (el.flipX || el.flipY) {
       ctx.translate(el.flipX ? el.w : 0, el.flipY ? el.h : 0);
       ctx.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
@@ -342,18 +333,6 @@ const DRAW = {
 // ---------------------------------------------------------------------------
 
 /** A shadow that, like CSS box-shadow, only shows outside the shape. */
-const imageFilterCss = (f) =>
-  [
-    f.brightness !== 100 && `brightness(${f.brightness}%)`,
-    f.contrast !== 100 && `contrast(${f.contrast}%)`,
-    f.saturate !== 100 && `saturate(${f.saturate}%)`,
-    f.hue && `hue-rotate(${f.hue}deg)`,
-    f.grayscale && `grayscale(${f.grayscale}%)`,
-    f.blur && `blur(${f.blur}px)`,
-  ]
-    .filter(Boolean)
-    .join(" ") || "none";
-
 /** A picture clipped to a shape; drawn off-screen first so the shadow follows the shape. */
 function drawMaskedImage(ctx, el, img, s) {
   const r = Math.min(el.w, el.h) * 0.2;
@@ -361,7 +340,7 @@ function drawMaskedImage(ctx, el, img, s) {
   const g = off.getContext("2d");
   g.scale(s, s);
   g.clip(new Path2D(shapePath(el.mask, el.w, el.h, r)));
-  g.filter = imageFilterCss(el.filters);
+  g.filter = imageFilter(el.filters, el.outline, s);
   if (el.flipX || el.flipY) {
     g.translate(el.flipX ? el.w : 0, el.flipY ? el.h : 0);
     g.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);

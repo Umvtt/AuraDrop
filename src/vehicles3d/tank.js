@@ -1067,8 +1067,10 @@ function crewFigure(role) {
   const color = (CREW_ROLES.find((r) => r[0] === role) ?? CREW_ROLES[1])[2];
   const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, emissive: color, emissiveIntensity: 0.35 });
   const g = new THREE.Group();
-  g.add(mesh(new THREE.CapsuleGeometry(0.17, 0.36, 6, 12).translate(0, 0.44, 0), mat, null, { interior: true }));
-  g.add(mesh(new THREE.SphereGeometry(0.12, 16, 12).translate(0, 0.88, 0), mat, null, { interior: true }));
+  const body = mesh(new THREE.CapsuleGeometry(0.17, 0.36, 6, 12).translate(0, 0.44, 0), mat, null, { interior: true });
+  const head = mesh(new THREE.SphereGeometry(0.12, 16, 12).translate(0, 0.88, 0), mat, null, { interior: true });
+  body.userData.part = head.userData.part = { kind: "crew", role };
+  g.add(body, head);
   g.add(mesh(rbox(0.4, 0.08, 0.4, 0.02, -0.02, 0.18, 0), new THREE.MeshStandardMaterial({ color: 0x334155 }), null, { interior: true }));
   g.userData.role = role;
   return g;
@@ -1149,6 +1151,12 @@ function buildInterior(spec, lay, out) {
   // Gun breech inside the turret.
   const breech = mesh(rbox(Math.min(1.4, cal * 11), cal * 3.5, cal * 3.6, 0.02, -cal * 4, 0, 0), new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7, roughness: 0.3 }), null, { interior: true });
   out.gunPivot.add(breech);
+  // Tag modules so shots can damage them (see ballistics.js).
+  const kinds = new Map([[engMat, "engine"], [radMat, "radiator"], [fuelMat, "fuel"], [trMat, "transmission"], [brass, "ammo"]]);
+  g.traverse((o) => {
+    if (o.isMesh && kinds.has(o.material)) o.userData.part = { kind: kinds.get(o.material) };
+  });
+  breech.userData.part = { kind: "breech" };
   g.visible = false;
   return g;
 }

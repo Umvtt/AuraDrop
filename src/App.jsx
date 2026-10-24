@@ -632,6 +632,37 @@ export default function App() {
     [workshop, editor, insertVehicle, loadProject],
   );
 
+  /** A hit-camera shot or photo from the Workshop goes onto the canvas (a new project when opened from Home). */
+  const addWorkshopPicture = useCallback(
+    async (data, name) => {
+      const w = workshop;
+      if (!w) return;
+      const { w: iw, h: ih } = await imageSize(data);
+      const fresh = w.context === "browse";
+      if (fresh) {
+        await flush({ thumb: true });
+        const p = makeFromTemplate("blank", "card");
+        p.name = `${w.vehicle.name} – ${name}`;
+        editor.load(p);
+        savedRef.current = null;
+        libRef.current.projectId = null;
+        setProjectId(null);
+        setFile({ path: null, name: null });
+        setWorkshop((x) => ({ ...x, context: "insert", back: "edit" }));
+      }
+      editor.withAsset("image", data, name, (p, id) => {
+        const c = p.canvas;
+        const k = Math.min((c.w * 0.86) / iw, (c.h * 0.86) / ih, 1);
+        const ew = Math.round(iw * k);
+        const eh = Math.round(ih * k);
+        const el = createElement("image", c, { asset: id, w: ew, h: eh, x: Math.round((c.w - ew) / 2), y: Math.round((c.h - eh) / 2), name, fit: "contain", radius: 18 });
+        return editor.pageUpdater((pg) => ({ ...pg, elements: [...pg.elements, el] }))(p);
+      });
+      notify(fresh ? `Started a new project with it – it's there when you leave the Workshop` : `Added to your canvas`, "success");
+    },
+    [workshop, flush, editor, notify],
+  );
+
   // --- keyboard -----------------------------------------------------------------
   const keyRef = useRef();
   keyRef.current = { mode, save, openDialog, newProject, editor, selection, selected, copy, paste, exportPng, canvasRef, setGrid };
@@ -772,6 +803,7 @@ export default function App() {
           hangar={hangar}
           notify={notify}
           onDone={finishWorkshop}
+          onAddPicture={addWorkshopPicture}
           onClose={() => {
             setMode(workshop.back === "workshop" ? "home" : workshop.back);
             setWorkshop(null);

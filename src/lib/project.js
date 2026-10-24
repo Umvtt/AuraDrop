@@ -123,6 +123,7 @@ export const DEFAULTS = {
     flipY: false,
     mask: "none",
     original: null,
+    outline: { width: 0, color: "#ffffff" },
     filters: { brightness: 100, contrast: 100, saturate: 100, blur: 0, hue: 0, grayscale: 0 },
   }),
   shape: () => ({
@@ -786,6 +787,7 @@ function sanitizeElement(e, pageIds) {
         flipY: bool(e.flipY, false),
         mask: pick(e.mask, MASKS, "none"),
         original: typeof e.original === "string" ? e.original : null,
+        outline: { width: num(e.outline?.width, 0, 60, 0), color: color(e.outline?.color, "#ffffff") },
         filters: sub(e.filters, d.filters, {
           brightness: (v, f) => num(v, 0, 300, f),
           contrast: (v, f) => num(v, 0, 300, f),

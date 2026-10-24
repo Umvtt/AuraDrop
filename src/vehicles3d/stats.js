@@ -83,3 +83,22 @@ export function computeStats(v) {
     warnings,
   };
 }
+
+/** Silly comparisons for meme stat cards. */
+export function jokeStats(v) {
+  const st = computeStats(v);
+  if (!st.mass) return [];
+  const val = (k) => st.rows.find((r) => r.key === k)?.value ?? 0;
+  const speed = val("speed");
+  const pen = val("pen");
+  const reload = val("reload");
+  const n = (x) => (x >= 10 ? Math.round(x) : Math.round(x * 10) / 10);
+  const speedJoke =
+    speed < 20 ? "🐢 Slower than a grandma with a shopping trolley" : speed < 32 ? "🏃 About as fast as Usain Bolt (on a good day)" : speed < 45 ? "🛵 Keeps up with a pizza delivery moped" : speed < 60 ? "🚓 Would get a speeding ticket in town" : "🏎️ Overtakes your dad on the motorway";
+  return [
+    `🐘 Weighs as much as ${n(st.mass / 6)} elephants`,
+    speedJoke,
+    `🍕 Punches through ${n(pen / 12)} stacked pizzas`,
+    `⏱️ Reloads in ${n(reload / 0.7)} “skill issue”s`,
+  ];
+}
