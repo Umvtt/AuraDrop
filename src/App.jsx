@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Command, Grid3x3, Magnet, Pause, Play, Ruler, Wrench } from "lucide-react";
+import { Command, Grid3x3, History, Magnet, Pause, Play, Ruler, Wrench } from "lucide-react";
 import { Section, Segmented, Slider, Toggle, UiModeContext } from "./components/controls.jsx";
 import { BottomBar } from "./components/editor/BottomBar.jsx";
 import { Canvas } from "./components/editor/Canvas.jsx";
 import { Inspector } from "./components/editor/Inspector.jsx";
 import { LeftPanel } from "./components/editor/LeftPanel.jsx";
+import { ExportMotion } from "./components/editor/ExportMotion.jsx";
+import { HistoryPanel } from "./components/editor/HistoryPanel.jsx";
 import { PictureTools } from "./components/editor/PictureTools.jsx";
 import { Preview } from "./components/Preview.jsx";
 import { Home } from "./components/Home.jsx";
@@ -78,6 +80,8 @@ export default function App() {
   const [menu, setMenu] = useState(null); // context menu {x, y, id}
   const [palette, setPalette] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [exportMotion, setExportMotion] = useState(false);
   const [grid, setGridState] = useState(() => readPref("grid", { show: false, snap: false, size: 40 }));
   const [rulers, setRulersState] = useState(() => readPref("rulers", true));
   const [uiMode, setUiModeState] = useState(() => readPref("uiMode", "simple"));
@@ -741,7 +745,7 @@ export default function App() {
     [editor],
   );
 
-  const app = { goHome, editor, project, page, selection, mode, setMode, grid, setGrid, rulers, setRulers, animate, setAnimate, canvasRef, copy, paste, save, openDialog, newProject, exportPng, exportHtml, onAdd, setShortcuts, setVehiclePicker, openWorkshop, notify };
+  const app = { setExportMotion, setShowHistory, goHome, editor, project, page, selection, mode, setMode, grid, setGrid, rulers, setRulers, animate, setAnimate, canvasRef, copy, paste, save, openDialog, newProject, exportPng, exportHtml, onAdd, setShortcuts, setVehiclePicker, openWorkshop, notify };
   const commands = buildCommands(app);
 
   const vehiclePanel = (el, set) => (
@@ -831,6 +835,7 @@ export default function App() {
             selectedIds={selectedIds}
             onAdd={onAdd}
             onAddSticker={(emoji) => editor.addElement("sticker", { emoji, name: `Sticker ${emoji}` })}
+            onAddImageSticker={(url, name) => addPicture(url, name)}
             onSelect={editor.select}
             onToggle={(id, key) => editor.updateElement(id, (e) => ({ ...e, [key]: !e[key] }), { step: true })}
             onReorder={editor.reorderLayers}
@@ -856,7 +861,8 @@ export default function App() {
                 grid={pro ? grid : { ...grid, show: false, snap: false }}
                 rulers={pro && rulers}
               />
-              <CanvasToolbar pro={pro} grid={grid} setGrid={setGrid} rulers={rulers} setRulers={setRulers} animate={animate} setAnimate={setAnimate} onPalette={() => setPalette(true)} />
+              {showHistory && <HistoryPanel editor={editor} onClose={() => setShowHistory(false)} />}
+              <CanvasToolbar showHistory={showHistory} setShowHistory={setShowHistory} pro={pro} grid={grid} setGrid={setGrid} rulers={rulers} setRulers={setRulers} animate={animate} setAnimate={setAnimate} onPalette={() => setPalette(true)} />
             </div>
             <BottomBar
               project={project}
@@ -869,6 +875,7 @@ export default function App() {
               onSave={() => save({ saveAs: !file.path })}
               onExportPng={exportPng}
               onExportHtml={exportHtml}
+              onExportMotion={() => setExportMotion(true)}
               busy={busy}
             />
           </main>
@@ -913,6 +920,7 @@ export default function App() {
       {menu && mode === "edit" && <ContextMenu x={menu.x} y={menu.y} items={contextItems(app, menu.id)} onClose={() => setMenu(null)} />}
       {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
       {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
+      {exportMotion && <ExportMotion project={project} pageIndex={pageIndex} fileName={safeFileName(project.name)} notify={notify} onClose={() => setExportMotion(false)} />}
       {pictureTools && (() => {
         const el = page.elements.find((e) => e.id === pictureTools.elId);
         const a = el?.asset && project.assets[el.asset];
@@ -984,7 +992,7 @@ function ToolToggle({ on, onClick, label, Icon, testid }) {
   );
 }
 
-function CanvasToolbar({ pro, grid, setGrid, rulers, setRulers, animate, setAnimate, onPalette }) {
+function CanvasToolbar({ showHistory, setShowHistory, pro, grid, setGrid, rulers, setRulers, animate, setAnimate, onPalette }) {
   return (
     <div className={`glass-float absolute ${pro ? "top-7" : "top-3"} right-3 flex items-center gap-0.5 rounded-xl p-0.5`}>
       {pro && <>
@@ -992,6 +1000,7 @@ function CanvasToolbar({ pro, grid, setGrid, rulers, setRulers, animate, setAnim
       <ToolToggle on={grid.snap} onClick={() => setGrid((g) => ({ ...g, snap: !g.snap }))} label="Snap to grid" Icon={Magnet} testid="toggle-snap" />
       <ToolToggle on={rulers} onClick={() => setRulers((r) => !r)} label="Rulers & guides" Icon={Ruler} testid="toggle-rulers" />
       </>}
+      <ToolToggle on={showHistory} onClick={() => setShowHistory((h) => !h)} label="History: jump back to any change" Icon={History} testid="toggle-history" />
       <ToolToggle on={animate} onClick={() => setAnimate((a) => !a)} label="Play animations while editing" Icon={animate ? Pause : Play} testid="toggle-anim" />
       <span className="mx-0.5 h-4 w-px bg-white/10" />
       <button type="button" onClick={onPalette} className="press flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] text-muted hover:bg-white/10 hover:text-ink">

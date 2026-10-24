@@ -171,6 +171,7 @@ async function saveWithDialog(data, suggestedName, filter, mime) {
 
 export const saveProjectAs = (text, name) => saveWithDialog(text, name, PROJECT_FILTER, "application/json");
 export const savePng = (bytes, name) => saveWithDialog(bytes, name, { name: "PNG image", extensions: ["png"] }, "image/png");
+export const saveMedia = (bytes, name, ext, label, mime) => saveWithDialog(bytes, name, { name: label, extensions: [ext] }, mime);
 export const saveWebPage = (html, name) => saveWithDialog(html, name, { name: "Web page", extensions: ["html"] }, "text/html");
 
 /** Overwrite a file that was opened or saved earlier. */

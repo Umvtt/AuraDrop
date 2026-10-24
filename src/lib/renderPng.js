@@ -3,8 +3,9 @@
 // same model and geometry the player uses (shape paths, gradient lines,
 // glass tint spots), including real frosted blur for glass.
 
-import { EMOJI_FONT, SPOTS, fontStack, gradientLine, imageFilter, rgba, shapePath } from "../player/player.js";
+import { EMOJI_FONT, SPOTS, curveLayout, fontStack, gradientLine, imageFilter, rgba, shapePath } from "../player/player.js";
 import { loadFonts, usedFonts } from "./fonts.js";
+import { animAt, driftAt } from "./motion.js";
 
 /**
  * @param {object} project
@@ -31,32 +32,100 @@ export async function renderThumb(project, size = 360) {
 }
 
 async function renderCanvas(project, pageIndex, s) {
+  const frames = await prepareFrames(project, pageIndex, s, { live: false });
+  frames.draw(null);
+  frames.dispose();
+  return frames.canvas;
+}
+
+/**
+ * Get ready to draw a page many times (video / GIF): fonts and pictures load
+ * once, then draw(t) paints the page as it looks t seconds in, animations,
+ * drifting background and moving 3D vehicles included. draw(null) is a still.
+ */
+export async function prepareFrames(project, pageIndex, s, { live = true } = {}) {
   const page = project.pages[pageIndex];
   const { w, h } = project.canvas;
   await loadFonts(usedFonts(project));
-  const images = await loadImages(project, page);
+  const vehicles = page.elements.filter((e) => e.type === "vehicle" && !e.hidden);
+  const movers = live ? vehicles.filter((e) => e.animate || e.spin) : [];
+  const images = await loadImages(project, page, new Set(movers.map((e) => e.id)));
+  // Moving vehicles are drawn live from the shared 3D renderer every frame.
+  const svc = movers.length ? await import("../vehicles3d/service.js") : null;
+  const held = new Map(movers.map((e) => [e.id, svc.hold(e.vehicle)]));
 
   const canvas = makeCanvas(w * s, h * s);
   const ctx = canvas.getContext("2d");
-  ctx.scale(s, s);
+  let last = 0;
 
-  drawBackground(ctx, page.bg, w, h, images);
-  for (const el of page.elements) {
-    if (el.hidden || el.opacity <= 0) continue;
-    ctx.save();
-    ctx.translate(el.x + el.w / 2, el.y + el.h / 2);
-    ctx.rotate((el.rotation * Math.PI) / 180);
-    ctx.translate(-el.w / 2, -el.h / 2);
-    ctx.globalAlpha = el.opacity;
-    DRAW[el.type]?.(ctx, el, { images, canvas, s });
-    ctx.restore();
-  }
-  return canvas;
+  const draw = (t) => {
+    ctx.setTransform(s, 0, 0, s, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.filter = "none";
+    ctx.clearRect(0, 0, w, h);
+    drawBackground(ctx, page.bg, w, h, images, t);
+    const dt = t == null ? 0.001 : Math.max(0.001, t - last);
+    last = t ?? 0;
+    for (const el of page.elements) {
+      if (el.hidden || el.opacity <= 0) continue;
+      const m = animAt(el.anim, t);
+      if (m.o <= 0 || m.s <= 0) continue;
+      ctx.save();
+      ctx.translate(el.x + el.w / 2, el.y + el.h / 2);
+      ctx.rotate((el.rotation * Math.PI) / 180);
+      ctx.translate(m.tx * el.w, m.ty * el.h);
+      ctx.rotate((m.r * Math.PI) / 180);
+      ctx.scale(m.s, m.s);
+      ctx.translate(-el.w / 2, -el.h / 2);
+      ctx.globalAlpha = el.opacity * m.o;
+      const hold = held.get(el.id);
+      if (hold) {
+        const k = Math.min(2, 1200 / Math.max(el.w, el.h)) || 1;
+        const src = hold.frame({ view: el.view, yaw: el.yaw, pitch: el.pitch, zoom: el.zoom, spin: el.spin, animate: el.animate, ground: el.ground }, Math.round(el.w * k), Math.round(el.h * k), t ?? 0, dt);
+        ctx.drawImage(src, 0, 0, el.w, el.h);
+      } else DRAW[el.type]?.(ctx, el, { images, canvas, s });
+      ctx.restore();
+    }
+  };
+  return { canvas, draw, dispose: () => held.forEach((x) => x.release()) };
 }
 
 // ---------------------------------------------------------------------------
 
-function drawBackground(ctx, bg, w, h, images) {
+function drawCurvedText(ctx, el) {
+  if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+  const glyphs = curveLayout(el, (t) => ctx.measureText(t).width);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const each = (fn) =>
+    glyphs.forEach((g) => {
+      ctx.save();
+      ctx.translate(g.x, g.y);
+      ctx.rotate(g.angle);
+      fn(g.ch);
+      ctx.restore();
+    });
+  if (el.shadow?.on) {
+    ctx.save();
+    ctx.shadowColor = rgba(el.shadow.color, el.shadow.opacity);
+    ctx.shadowBlur = el.shadow.blur;
+    ctx.shadowOffsetX = el.shadow.x;
+    ctx.shadowOffsetY = el.shadow.y;
+    ctx.fillStyle = el.color;
+    each((ch) => ctx.fillText(ch, 0, 0));
+    ctx.restore();
+  }
+  if (el.stroke.width) {
+    ctx.strokeStyle = el.stroke.color;
+    ctx.lineWidth = el.stroke.width * 2;
+    ctx.lineJoin = "round";
+    each((ch) => ctx.strokeText(ch, 0, 0));
+  }
+  ctx.fillStyle = el.color;
+  each((ch) => ctx.fillText(ch, 0, 0));
+}
+
+function drawBackground(ctx, bg, w, h, images, t = null) {
   ctx.fillStyle = bg.color;
   ctx.fillRect(0, 0, w, h);
   if (bg.type === "gradient") {
@@ -82,13 +151,15 @@ function drawBackground(ctx, bg, w, h, images) {
     ctx.globalAlpha = 0.7;
     bg.colors.forEach((c, i) => {
       const [sx, sy] = SPOTS[i % 5];
-      const cx = (sx / 100) * w;
-      const cy = (sy / 100) * h;
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, size / 2);
+      const d = driftAt(i, bg.drift, t);
+      const cx = (sx / 100) * w + d.tx * size;
+      const cy = (sy / 100) * h + d.ty * size;
+      const r = (size / 2) * d.s;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
       g.addColorStop(0, c);
       g.addColorStop(0.68, rgba(c, 0));
       ctx.fillStyle = g;
-      ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
     });
     ctx.restore();
   }
@@ -114,6 +185,7 @@ const DRAW = {
   text(ctx, el) {
     const size = el.size;
     ctx.font = `${el.weight} ${size}px ${fontStack(el.font)}`;
+    if (el.curve) return drawCurvedText(ctx, el);
     if ("letterSpacing" in ctx) ctx.letterSpacing = `${el.spacing}px`;
     const raw = el.upper ? el.text.toUpperCase() : el.text;
     const pad = el.bg?.on ? el.bg.pad : 0;
@@ -393,13 +465,13 @@ function drawFit(ctx, img, x, y, w, h, fit) {
   ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
 }
 
-async function loadImages(project, page) {
+async function loadImages(project, page, skip = new Set()) {
   const ids = new Set();
   if (page.bg.type === "image" && page.bg.asset) ids.add(page.bg.asset);
   for (const el of page.elements) if (el.type === "image" && el.asset) ids.add(el.asset);
   const map = new Map();
   // 3D vehicles: render a still from the same angle and view.
-  const vehicles = page.elements.filter((e) => e.type === "vehicle" && !e.hidden);
+  const vehicles = page.elements.filter((e) => e.type === "vehicle" && !e.hidden && !skip.has(e.id));
   if (vehicles.length) {
     const svc = await import("../vehicles3d/service.js");
     for (const el of vehicles) {

@@ -24,6 +24,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { TANK_STICKERS, stickerUrl } from "../../lib/tankStickers.js";
 import { TankIcon } from "../icons.jsx";
 
 export const STICKERS = [
@@ -73,8 +74,9 @@ function buildRows(elements, collapsed) {
   return rows;
 }
 
-export function LeftPanel({ page, selectedIds, onAdd, onAddSticker, onSelect, onToggle, onReorder, onRename, onContextMenu, onUngroup }) {
+export function LeftPanel({ page, selectedIds, onAdd, onAddSticker, onAddImageSticker, onSelect, onToggle, onReorder, onRename, onContextMenu, onUngroup }) {
   const [stickers, setStickers] = useState(false);
+  const [stickerTab, setStickerTab] = useState("memes");
   const [renaming, setRenaming] = useState(null);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState(() => new Set());
@@ -194,7 +196,34 @@ export function LeftPanel({ page, selectedIds, onAdd, onAddSticker, onSelect, on
           ))}
         </div>
         {stickers && (
-          <div className="pop-in scroll-thin mt-2 grid max-h-44 grid-cols-8 gap-0.5 overflow-y-auto rounded-xl border border-white/10 bg-black/30 p-1.5" role="listbox" aria-label="Stickers">
+          <div className="mt-2 flex gap-1 rounded-lg bg-black/25 p-0.5 text-[11px]" role="tablist">
+            {[["memes", "Tank memes"], ["emoji", "Emoji"]].map(([id, label]) => (
+              <button key={id} type="button" role="tab" aria-selected={stickerTab === id} onClick={() => setStickerTab(id)} data-testid={`stickers-${id}`} className={`flex-1 rounded-md px-2 py-1 font-medium ${stickerTab === id ? "bg-white/[0.14] text-ink" : "text-muted hover:text-ink"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {stickers && stickerTab === "memes" && (
+          <div className="pop-in scroll-thin mt-1 grid max-h-56 grid-cols-3 gap-1 overflow-y-auto rounded-xl border border-white/10 bg-black/30 p-1.5" role="listbox" aria-label="Tank meme stickers">
+            {TANK_STICKERS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                role="option"
+                aria-selected={false}
+                title={s.name}
+                aria-label={`Add ${s.name}`}
+                onClick={() => onAddImageSticker(stickerUrl(s), s.name)}
+                className="press grid aspect-square place-items-center rounded-md p-1 hover:bg-white/10"
+              >
+                <img src={stickerUrl(s)} alt="" className="max-h-full max-w-full" draggable={false} />
+              </button>
+            ))}
+          </div>
+        )}
+        {stickers && stickerTab === "emoji" && (
+          <div className="pop-in scroll-thin mt-1 grid max-h-44 grid-cols-8 gap-0.5 overflow-y-auto rounded-xl border border-white/10 bg-black/30 p-1.5" role="listbox" aria-label="Stickers">
             {STICKERS.map((s) => (
               <button
                 key={s}

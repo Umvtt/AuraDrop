@@ -235,6 +235,7 @@ function TextPanel({ el, set }) {
       <ColorInput label="Colour" value={el.color} onChange={(color) => set({ color })} />
       <Segmented label="Align" value={el.align} onChange={(align) => set({ align })} options={[{ id: "left", label: "Left" }, { id: "center", label: "Centre" }, { id: "right", label: "Right" }]} />
       <Toggle label="ALL CAPS" checked={el.upper} onChange={(upper) => set({ upper })} />
+      <Slider label="Curve" value={el.curve} min={-100} max={100} onChange={(curve) => set({ curve: Math.abs(curve) < 3 ? 0 : curve })} format={(v) => (v === 0 ? "Straight" : v > 0 ? `Arch ${v}` : `Smile ${-v}`)} left="◡ Smile" right="Arch ◠" />
       <Pro>
       <div className="grid grid-cols-2 gap-3">
         <Slider label="Spacing" value={el.spacing} min={-10} max={40} onChange={(spacing) => set({ spacing })} format={px} />

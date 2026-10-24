@@ -102,9 +102,13 @@ export function latheX(profile, seg = 32) {
  * section is a super-ellipse (n = 2 round, higher = boxier) of half-width w,
  * half-height h centred at height y. Smooth fuselages and car bodies.
  */
-export function loft(sections, around = 32, cap = true) {
+export function loft(sections, around = 32, cap = true, { split = null } = {}) {
   const pos = [];
   const idx = [];
+  const upper = [];
+  // Sections may run either way along x; keep the faces pointing outwards.
+  const rev = sections.length > 1 && sections[sections.length - 1].x < sections[0].x;
+  const tri = (list, a, b, c) => (rev ? list.push(a, c, b) : list.push(a, b, c));
   const ring = (s) => {
     const n = s.n ?? 2.4;
     for (let i = 0; i < around; i++) {
@@ -123,7 +127,10 @@ export function loft(sections, around = 32, cap = true) {
       const b = k * around + ((i + 1) % around);
       const c = (k + 1) * around + i;
       const d = (k + 1) * around + ((i + 1) % around);
-      idx.push(a, c, b, b, c, d);
+      // With `split`, faces high on the ring (sin > split) go in a second group (e.g. a painted roof over glass).
+      const list = split != null && Math.sin(((i + 0.5) / around) * Math.PI * 2) > split ? upper : idx;
+      tri(list, a, c, b);
+      tri(list, b, c, d);
     }
   }
   if (cap) {
@@ -134,13 +141,17 @@ export function loft(sections, around = 32, cap = true) {
       for (let i = 0; i < around; i++) {
         const a = k * around + i;
         const b = k * around + ((i + 1) % around);
-        flip ? idx.push(center, a, b) : idx.push(center, b, a);
+        flip ? tri(idx, center, a, b) : tri(idx, center, b, a);
       }
     }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
+  g.setIndex([...idx, ...upper]);
+  if (split != null) {
+    g.addGroup(0, idx.length, 0);
+    g.addGroup(idx.length, upper.length, 1);
+  }
   g.computeVertexNormals();
   return g;
 }

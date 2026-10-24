@@ -62,6 +62,8 @@ export function buildCommands(a) {
     c("add-star", "Add a star", "Add", () => a.onAdd("star"), { icon: Shapes, disabled: !editing }),
     c("add-vehicle", "Add a tank (3D)", "Add", () => a.setVehiclePicker(true), { icon: TankIcon, disabled: !editing, keywords: ["vehicle", "war thunder", "tiger", "sherman"] }),
     c("workshop", "Open the Vehicle Workshop", "Vehicles", () => a.openWorkshop((a.selection[0]?.type === "vehicle" && a.selection[0].vehicle) || undefined, a.selection[0]?.type === "vehicle" ? "edit" : "insert", a.selection[0]?.type === "vehicle" ? a.selection[0].id : null), { icon: Wrench, keywords: ["tank", "build", "hangar"] }),
+    c("export-video", "Export a video or GIF…", "File", () => a.setExportMotion(true), { icon: FileImage, keywords: ["mp4", "webm", "gif", "animation", "record"] }),
+    c("history", "Show history", "Edit", () => a.setShowHistory((h) => !h), { icon: Undo2, keywords: ["undo", "back", "changes"] }),
     c("undo", "Undo", "Edit", ed.undo, { icon: Undo2, shortcut: "Ctrl+Z", disabled: !ed.canUndo }),
     c("redo", "Redo", "Edit", ed.redo, { icon: Redo2, shortcut: "Ctrl+Y", disabled: !ed.canRedo }),
     c("select-all", "Select all", "Edit", () => ed.select(ed.page.elements.map((e) => e.id), { deep: true }), { shortcut: "Ctrl+A", disabled: !editing }),

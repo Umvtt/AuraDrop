@@ -371,6 +371,8 @@ export function useEditor(initial) {
     redo: history.redo,
     canUndo: history.canUndo,
     canRedo: history.canRedo,
+    jumpTo: history.jumpTo,
+    timeline: history.timeline,
     ...ops,
   };
 }

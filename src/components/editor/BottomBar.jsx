@@ -3,7 +3,7 @@ import { IconButton } from "../controls.jsx";
 import { Icons } from "../TitleBar.jsx";
 
 /** Pages on the left; Save / Export PNG / Web page on the right. */
-export function BottomBar({ project, pageIndex, onGoTo, onAddPage, onDuplicatePage, onRemovePage, onMovePage, onSave, onExportPng, onExportHtml, busy }) {
+export function BottomBar({ project, pageIndex, onGoTo, onAddPage, onDuplicatePage, onRemovePage, onMovePage, onSave, onExportPng, onExportHtml, onExportMotion, busy }) {
   const [menu, setMenu] = useState(null);
   const menuRef = useRef(null);
   useEffect(() => {
@@ -106,6 +106,15 @@ export function BottomBar({ project, pageIndex, onGoTo, onAddPage, onDuplicatePa
           className="press focus-ring flex items-center gap-1.5 rounded-xl border border-white/12 bg-white/[0.08] px-3 py-2 text-[12.5px] font-semibold whitespace-nowrap text-ink hover:bg-white/[0.14] disabled:opacity-60"
         >
           🌐 {busy === "html" ? "Exporting…" : "Web page"}
+        </button>
+        <button
+          type="button"
+          onClick={onExportMotion}
+          title="Video (MP4/WebM) or GIF with the animations and moving tanks"
+          data-testid="export-motion-btn"
+          className="press focus-ring flex items-center gap-1.5 rounded-xl border border-white/12 bg-white/[0.08] px-3 py-2 text-[12.5px] font-semibold whitespace-nowrap text-ink hover:bg-white/[0.14]"
+        >
+          🎬 Video / GIF
         </button>
       </div>
     </div>

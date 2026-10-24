@@ -65,7 +65,7 @@ function release(key) {
 /** Frame the camera on a vehicle from yaw/pitch (degrees) at a zoom. */
 function aim(built, { yaw = 35, pitch = 12, zoom = 1 }, aspect) {
   const s = built.size;
-  const radius = Math.max(s.length * 0.62, s.height * 1.1, s.width);
+  const radius = Math.max(s.length * 0.62, s.height * 1.1, s.width * 0.72);
   const dist = (radius / Math.tan((camera.fov * Math.PI) / 360)) * (aspect < 1.4 ? 1.4 / aspect : 1) * 0.5 / zoom;
   const y = (pitch * Math.PI) / 180;
   const a = (yaw * Math.PI) / 180;
@@ -99,6 +99,19 @@ export function snapshot(vehicle, opts = {}, w = 1200, h = 700) {
   } finally {
     release(key);
   }
+}
+
+/** Keep a vehicle built for frame-by-frame rendering (video export). */
+export function hold(vehicle) {
+  const { key, e } = acquire(vehicle);
+  return {
+    /** Draw one frame; returns the WebGL canvas to copy from straight away. */
+    frame(opts, w, h, t, dt) {
+      draw(e.built, opts, w, h, t, dt);
+      return renderer.domElement;
+    },
+    release: () => release(key),
+  };
 }
 
 function loop(now) {

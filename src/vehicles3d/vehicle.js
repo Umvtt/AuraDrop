@@ -3,9 +3,11 @@
 import * as THREE from "three";
 import { armorColor, effectiveArmor } from "./decals.js";
 import { makeMaterials, disposeMaterials } from "./materials.js";
+import { buildCar } from "./car.js";
+import { buildPlane } from "./plane.js";
 import { buildTank } from "./tank.js";
 
-const builders = { tank: buildTank };
+const builders = { tank: buildTank, plane: buildPlane, car: buildCar };
 
 export function registerBuilder(kind, fn) {
   builders[kind] = fn;

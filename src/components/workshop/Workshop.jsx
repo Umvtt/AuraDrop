@@ -78,6 +78,9 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
     setDuelStatus("idle");
     if (t !== "build" && t !== "photo") setView("normal");
   };
+  useEffect(() => {
+    if (vehicle.kind !== "tank" && (tool === "test" || tool === "duel")) setTool("build");
+  }, [vehicle.kind, tool]);
   const onShot = useCallback((e) => setEntries((list) => [e, ...list].slice(0, 60)), []);
   const onState = useCallback((st) => setStates(structuredClone(st)), []);
   const onEnd = useCallback(({ winner }) => {
@@ -155,7 +158,7 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
         </select>
         <span className="mx-1 h-6 w-px bg-white/10" />
         <div className="flex rounded-xl bg-black/25 p-1" role="radiogroup" aria-label="Tool">
-          {TOOLS.map(({ id, label, Icon }) => (
+          {TOOLS.filter((t) => vehicle.kind === "tank" || t.id === "build" || t.id === "photo").map(({ id, label, Icon }) => (
             <button key={id} type="button" role="radio" aria-checked={tool === id} data-testid={`tool-${id}`} onClick={() => switchTool(id)} className={`press flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium ${tool === id ? "bg-gradient-to-r from-accent/40 to-accent-2/30 text-white" : "text-muted hover:text-ink"}`}>
               <Icon size={14} /> {label}
             </button>
@@ -190,7 +193,7 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
         </button>
         <span className="flex-1" />
         {tool === "build" && <>
-        <button type="button" onClick={(e) => set(randomVehicle(e.shiftKey))} className="chip-btn" title="Random tank (Shift+click for a cursed one)" data-testid="random-tank">
+        <button type="button" onClick={(e) => set(randomVehicle(e.shiftKey, Math.random, vehicle.kind))} className="chip-btn" title={`Random ${vehicle.kind} (Shift+click for a cursed one)`} data-testid="random-tank">
           <Dices size={14} /> Random
         </button>
         <button type="button" onClick={() => setGallery("presets")} className="chip-btn">
@@ -296,9 +299,10 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
             <div className="flex items-center gap-3">
               <div className="grid size-16 flex-none place-items-center rounded-2xl bg-gradient-to-br from-amber-400 to-rose-500 text-center text-[#0b0c12] shadow-lg">
                 <div>
-                  <p className="text-[9px] font-bold tracking-widest">BR</p>
+                  {/* Cars have no battle rating: show their top speed instead. */}
+                  <p className="text-[9px] font-bold tracking-widest">{stats.br != null ? "BR" : "KM/H"}</p>
                   <p className="font-display text-[22px] leading-none font-black" data-testid="br">
-                    {stats.br?.toFixed(1) ?? "—"}
+                    {stats.br != null ? stats.br.toFixed(1) : Math.round(stats.rows.find((r) => r.key === "speed")?.value ?? 0)}
                   </p>
                 </div>
               </div>
@@ -339,6 +343,7 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
       {gallery?.startsWith("opponent") && (
         <Gallery
           kind={gallery === "opponent-hangar" ? "hangar" : "presets"}
+          kinds={["tank"]}
           hangar={hangar}
           title={
             <span className="flex items-center gap-2">
@@ -398,8 +403,8 @@ export function VehicleThumb({ vehicle, className = "" }) {
   return src ? <img src={src} alt="" className={className} draggable={false} /> : <div className={`${className} animate-pulse bg-white/5`} />;
 }
 
-export function Gallery({ kind, hangar, onPick, onClose, title }) {
-  const items = kind === "presets" ? PRESETS3D : hangar.list;
+export function Gallery({ kind, hangar, onPick, onClose, title, kinds = ["tank", "plane", "car"] }) {
+  const items = (kind === "presets" ? PRESETS3D : hangar.list).filter((v) => kinds.includes(v.kind));
   return (
     <div className="fixed inset-0 z-[70] grid place-items-center bg-black/50 p-6 backdrop-blur-sm" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="menu-surface pop-in flex max-h-[86vh] w-[min(1100px,94vw)] flex-col p-5!" role="dialog" aria-label={kind === "presets" ? "Presets" : "Hangar"}>
@@ -411,11 +416,11 @@ export function Gallery({ kind, hangar, onPick, onClose, title }) {
         </div>
         {items.length === 0 && <p className="py-10 text-center text-[13px] text-muted">Nothing saved yet. Build something and press “Save to hangar”.</p>}
         <div className="scroll-thin grid min-h-0 grid-cols-3 gap-3 overflow-y-auto p-0.5">
-          {items.map((v) => {
+          {items.map((v, i) => {
             const st = computeStats(v);
             const n = NATIONS.find((x) => x.id === v.nation);
             return (
-              <div key={v.id} className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] hover:border-accent/50">
+              <div key={v.id} className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] hover:border-accent/50" style={i > 0 && items[i - 1].kind !== v.kind ? { gridColumnStart: 1 } : undefined}>
                 <button type="button" onClick={() => onPick(v)} className="block w-full text-left" data-testid="gallery-item">
                   <VehicleThumb vehicle={v} className="aspect-[12/7] w-full object-cover" />
                   <div className="flex items-center gap-2 px-3 py-2">

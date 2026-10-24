@@ -88,6 +88,21 @@ export function useHistory(initial) {
     bump();
   }, [flush]);
 
+  /** Jump straight to any point in the history (the history panel). */
+  const jumpTo = useCallback(
+    (index) => {
+      flush();
+      const all = [...past.current, committed.current, ...future.current];
+      if (index < 0 || index >= all.length || index === past.current.length) return;
+      past.current = all.slice(0, index);
+      committed.current = all[index];
+      future.current = all.slice(index + 1);
+      show(all[index]);
+      bump();
+    },
+    [flush],
+  );
+
   useEffect(() => () => clearTimeout(timer.current), []);
 
   return {
@@ -98,5 +113,8 @@ export function useHistory(initial) {
     redo,
     canUndo: past.current.length > 0 || present !== committed.current,
     canRedo: future.current.length > 0,
+    jumpTo,
+    /** Every state in order, and which one is showing. */
+    timeline: () => ({ states: [...past.current, committed.current, ...future.current], index: past.current.length }),
   };
 }

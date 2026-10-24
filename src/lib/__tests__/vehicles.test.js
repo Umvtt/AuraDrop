@@ -1,16 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { createVehicle, sanitizeVehicle, setPath } from "../../vehicles3d/spec.js";
 import { brStep, computeStats, penetration } from "../../vehicles3d/stats.js";
-import { TANKS } from "../../vehicles3d/presets.js";
+import { CARS, PLANES, TANKS } from "../../vehicles3d/presets.js";
 import { createProject, parseProjectFile, serializeProject, makeFromTemplate } from "../project.js";
 
 describe("3D vehicles", () => {
-  it("has twelve tank presets with plausible battle ratings", () => {
-    expect(TANKS).toHaveLength(12);
+  it("has eighteen tank presets with plausible battle ratings", () => {
+    expect(TANKS).toHaveLength(18);
     const br = Object.fromEntries(TANKS.map((t) => [t.preset, computeStats(t).br]));
     expect(br.tiger1).toBe(6.7);
     expect(br.sherman).toBeLessThan(br.tiger1);
     expect(br.abrams).toBeGreaterThan(9);
+    expect(br.kingtiger).toBeGreaterThan(br.tiger1);
+    expect(br.t54).toBeGreaterThan(br.is2);
+  });
+
+  it("has plane and car presets with sensible stats", () => {
+    expect(PLANES.length).toBeGreaterThanOrEqual(8);
+    expect(CARS.length).toBeGreaterThanOrEqual(6);
+    const speed = (v) => computeStats(v).rows.find((r) => r.key === "speed").value;
+    const p = Object.fromEntries(PLANES.map((v) => [v.preset, v]));
+    expect(speed(p.mig15)).toBeGreaterThan(speed(p.p51d));
+    expect(speed(p.p51d)).toBeGreaterThan(speed(p.stuka));
+    expect(computeStats(p.spitfire9).br).toBeGreaterThan(1);
+    const c = Object.fromEntries(CARS.map((v) => [v.preset, v]));
+    expect(speed(c.hyper)).toBeGreaterThan(speed(c.jeep));
+    for (const v of [...PLANES, ...CARS]) for (const r of computeStats(v).rows) expect(Number.isFinite(r.value)).toBe(true);
   });
 
   it("matches published penetration roughly", () => {

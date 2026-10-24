@@ -196,6 +196,31 @@ function textShadow(el) {
   return out.join(",") || "none";
 }
 
+/**
+ * Curved text: where each character sits on an arc. curve in [-100, 100]:
+ * positive bends like a rainbow, negative like a smile. measure(str) → px.
+ */
+function curveLayout(el, measure) {
+  const text = (el.upper ? el.text.toUpperCase() : el.text).replace(/\s*\n\s*/g, " ");
+  const chars = Array.from(text);
+  const widths = chars.map((ch) => measure(ch) + (el.spacing || 0));
+  const tw = widths.reduce((a, b) => a + b, 0) || 1;
+  const theta = (Math.min(100, Math.abs(el.curve)) / 100) * Math.PI * 1.8;
+  const r = tw / theta;
+  const ext = r * (1 - Math.cos(theta / 2));
+  const up = el.curve > 0;
+  const baseY = el.h / 2 + (up ? -ext / 2 : ext / 2);
+  const out = [];
+  let s = -tw / 2;
+  chars.forEach((ch, i) => {
+    const a = (s + widths[i] / 2) / r;
+    s += widths[i];
+    const dy = r * (1 - Math.cos(a));
+    out.push({ ch, x: el.w / 2 + r * Math.sin(a), y: up ? baseY + dy : baseY - dy, angle: up ? a : -a });
+  });
+  return out;
+}
+
 /** CSS filter for a picture; `outline` traces its see-through edges like a sticker. k scales px (canvas exports). */
 function imageFilter(f, outline, k = 1) {
   if (!f) return "none";
@@ -374,6 +399,20 @@ function createPlayer(root, initialProject, options) {
     inner.className = "ad-inner";
     switch (el.type) {
       case "text": {
+        if (el.curve) {
+          // Each character placed and turned along the arc.
+          const font = `${el.weight} ${el.size}px ${fontStack(el.font)}`;
+          const m = document.createElement("canvas").getContext("2d");
+          m.font = font;
+          const shadow = textShadow(el);
+          for (const g of curveLayout(el, (t) => m.measureText(t).width)) {
+            const sp = make("span");
+            sp.textContent = g.ch;
+            sp.style.cssText = `position:absolute;left:${g.x}px;top:${g.y}px;transform:translate(-50%,-50%) rotate(${g.angle}rad);white-space:pre;line-height:1;font:${font};color:${el.color};text-shadow:${shadow}`;
+            inner.append(sp);
+          }
+          break;
+        }
         inner.classList.add("ad-text");
         inner.style.justifyContent = { left: "flex-start", center: "center", right: "flex-end" }[el.align];
         const box = make("div");
@@ -846,4 +885,4 @@ function createPlayer(root, initialProject, options) {
   };
 }
 
-export { createPlayer, shapePath, gradientLine, textShadow, imageFilter, fontStack, rgba, FONT_STACKS, EMOJI_FONT, SPOTS, safeLink };
+export { createPlayer, curveLayout, shapePath, gradientLine, textShadow, imageFilter, fontStack, rgba, FONT_STACKS, EMOJI_FONT, SPOTS, safeLink };

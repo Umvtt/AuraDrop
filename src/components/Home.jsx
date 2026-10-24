@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
-import { Copy, Dices, FilePlus, FolderOpen, LayoutTemplate, Pencil, Search, Trash2, Wrench } from "lucide-react";
+import { Car, Copy, Dices, FilePlus, FolderOpen, LayoutTemplate, Pencil, Plane, Search, Trash2, Wrench } from "lucide-react";
 import { CANVAS_PRESETS, TEMPLATES } from "../lib/project.js";
-import { NATIONS } from "../vehicles3d/spec.js";
+import { createVehicle, NATIONS } from "../vehicles3d/spec.js";
 import { computeStats } from "../vehicles3d/stats.js";
 import { PRESETS3D } from "../vehicles3d/presets.js";
 import { Select } from "./controls.jsx";
@@ -216,23 +216,52 @@ function VehicleCard({ v, onClick, onDelete }) {
   );
 }
 
+const KIND_GROUPS = [
+  { kind: "tank", title: "Tanks", hint: "Real tanks, approximate", Icon: TankIcon },
+  { kind: "plane", title: "Planes", hint: "Real planes, approximate", Icon: Plane },
+  { kind: "car", title: "Cars", hint: "Made-up but fast", Icon: Car },
+];
+
 function WorkshopTab({ onWorkshop, onRandomTank }) {
   return (
     <>
-      <Heading title="Vehicle Workshop" hint="Build a tank in 3D, see its armour and X-ray, and watch the stats and battle rating change.">
+      <Heading title="Vehicle Workshop" hint="Build tanks, planes and cars in 3D: armour, X-ray, stats, duels and photos.">
         <button type="button" onClick={onRandomTank} className="chip-btn" title="Shift+click for a cursed one">
           <Dices size={14} /> Random tank
         </button>
-        <button type="button" onClick={() => onWorkshop(null)} className="press focus-ring flex items-center gap-2 rounded-xl bg-gradient-to-r from-accent to-accent-2 px-4 py-2 text-[13px] font-semibold text-[#0b0c12]">
-          <Wrench size={15} /> Build from scratch
-        </button>
       </Heading>
-      <p className="panel-label mb-2">Start from a real tank (approximate)</p>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
-        {PRESETS3D.map((v) => (
-          <VehicleCard key={v.id} v={v} onClick={() => onWorkshop(v)} />
+      <div className="mb-6 grid grid-cols-3 gap-3">
+        {KIND_GROUPS.map(({ kind, title, Icon }) => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => onWorkshop(createVehicle(kind, { name: `My ${kind}` }))}
+            data-testid={`new-${kind}`}
+            className="press focus-ring flex items-center gap-3 rounded-2xl border border-white/10 bg-gradient-to-br from-accent/20 to-accent-2/10 p-4 text-left hover:border-accent/50"
+          >
+            <span className="grid size-11 place-items-center rounded-xl bg-white/10">
+              <Icon size={22} />
+            </span>
+            <span>
+              <span className="block text-[14px] font-semibold">New {title.slice(0, -1).toLowerCase()}</span>
+              <span className="block text-[11.5px] text-muted">Build one from scratch</span>
+            </span>
+            <Wrench size={15} className="ml-auto text-muted" />
+          </button>
         ))}
       </div>
+      {KIND_GROUPS.map(({ kind, title, hint }) => (
+        <section key={kind} className="mb-6">
+          <p className="panel-label mb-2">
+            {title} <span className="font-normal normal-case tracking-normal text-muted">· {hint}</span>
+          </p>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3">
+            {PRESETS3D.filter((v) => v.kind === kind).map((v) => (
+              <VehicleCard key={v.id} v={v} onClick={() => onWorkshop(v)} />
+            ))}
+          </div>
+        </section>
+      ))}
     </>
   );
 }

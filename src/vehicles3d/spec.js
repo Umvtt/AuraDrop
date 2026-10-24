@@ -592,7 +592,37 @@ const NAMES_B = ["Badger", "Wolf", "Mammoth", "Brick", "Panzer", "Toaster", "Bea
  * A random tank. Normal mode stays believable; "cursed" mode pushes every
  * slider to silly extremes (still valid, just ridiculous).
  */
-export function randomVehicle(cursed = false, rnd = Math.random) {
+/** A random plane or car: every field picked within its range (cursed: anything goes). */
+function randomOther(kind, cursed, rnd) {
+  const v = createVehicle(kind);
+  const pick = (list) => list[Math.floor(rnd() * list.length)];
+  const sections = kind === "plane" ? PLANE_FIELDS : CAR_FIELDS;
+  for (const sec of sections) {
+    for (const f of sec.fields) {
+      const cur = getPath(v.spec, f.k);
+      let val = cur;
+      if (f.type === "range" || f.type === "armor" || f.type === "slope") {
+        // Normal: stay near the default; cursed: the whole range.
+        const span = (f.max - f.min) * (cursed ? 1 : 0.35);
+        const lo = cursed ? f.min : Math.max(f.min, cur - span / 2);
+        const x = lo + rnd() * (cursed ? f.max - f.min : Math.min(f.max, cur + span / 2) - lo);
+        val = Math.round(x / f.step) * f.step;
+      } else if (f.type === "select") val = pick(f.options)[0];
+      else if (f.type === "toggle") val = rnd() < 0.35;
+      v.spec = setPath(v.spec, f.k, val);
+    }
+  }
+  if (kind === "plane" && !cursed && v.spec.fuselage.nose === "jet") v.spec = setPath(setPath(v.spec, "wing.plan", "swept"), "tail.fin", "swept");
+  const p = pick(PAINTS.filter((x) => cursed || kind === "car" || !x.gloss));
+  v.spec.paint = { ...v.spec.paint, base: p.base, camo: kind === "car" ? "none" : p.camo, c1: p.colors[0], c2: p.colors[1], c3: p.colors[2], gloss: p.gloss || kind === "car" ? 0.7 : 0.15, wear: kind === "car" ? 0.05 : 0.3, seed: Math.floor(rnd() * 1e6) };
+  v.spec.markings = { ...v.spec.markings, number: rnd() < 0.6 ? String(Math.floor(rnd() * 99) + 1) : "", insignia: "auto" };
+  v.nation = pick(NATIONS).id;
+  v.name = `${pick(NAMES_A)} ${pick(kind === "plane" ? ["Hawk", "Falcon", "Viper", "Hornet", "Swallow", "Comet"] : ["Rocket", "Bullet", "Comet", "Thunder", "Phantom", "Dart"])}`;
+  return sanitizeVehicle(v);
+}
+
+export function randomVehicle(cursed = false, rnd = Math.random, kind = "tank") {
+  if (kind !== "tank") return randomOther(kind, cursed, rnd);
   const pick = (list) => list[Math.floor(rnd() * list.length)];
   const between = (a, b, step = 0.01) => Math.round((a + rnd() * (b - a)) / step) * step;
   const v = createVehicle("tank");

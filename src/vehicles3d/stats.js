@@ -32,6 +32,8 @@ const row = (key, label, value, unit, bar, digits = 0) => ({
 export function computeStats(v) {
   const s = v.spec;
   const warnings = [];
+  if (v.kind === "plane") return planeStats(v);
+  if (v.kind === "car") return carStats(v);
   if (v.kind !== "tank") return { br: null, rows: [], warnings, headline: v.name };
   const H = s.hull;
   const T = s.turret;
@@ -95,10 +97,85 @@ export function jokeStats(v) {
   const n = (x) => (x >= 10 ? Math.round(x) : Math.round(x * 10) / 10);
   const speedJoke =
     speed < 20 ? "🐢 Slower than a grandma with a shopping trolley" : speed < 32 ? "🏃 About as fast as Usain Bolt (on a good day)" : speed < 45 ? "🛵 Keeps up with a pizza delivery moped" : speed < 60 ? "🚓 Would get a speeding ticket in town" : "🏎️ Overtakes your dad on the motorway";
+  if (v.kind === "plane") return [`🐘 Weighs as much as ${n(st.mass / 6)} elephants`, `🦅 ${n(speed / 390)}× a diving falcon`, `🛫 Wingspan of ${n(v.spec.wing.span / 1.8)} tall people lying head to toe`];
+  if (v.kind === "car") return [`🐆 Top speed of ${n(speed / 110)} cheetahs`, `🐘 Weighs ${n((st.mass * 1000) / 6000)} of an elephant`, speedJoke];
   return [
     `🐘 Weighs as much as ${n(st.mass / 6)} elephants`,
     speedJoke,
     `🍕 Punches through ${n(pen / 12)} stacked pizzas`,
     `⏱️ Reloads in ${n(reload / 0.7)} “skill issue”s`,
   ];
+}
+
+function planeStats(v) {
+  const s = v.spec;
+  const F = s.fuselage;
+  const W = s.wing;
+  const warnings = [];
+  const jet = F.nose === "jet";
+  const area = W.span * (W.root + W.tip) * 0.5 * (W.plan === "elliptical" ? 0.9 : 1);
+  const guns = s.guns;
+  const empty = 1.2 + F.length * F.width * F.height * 0.09 + area * 0.035 + (jet ? s.engine.thrust * 0.025 : s.engine.hp * 0.00055) + F.armor * 0.004;
+  const fuel = s.engine.fuel * 0.00072;
+  const stores = s.stores.bombs * s.stores.bombKg * 0.001 + s.stores.rockets * 0.06 + (s.stores.droptank ? 0.35 : 0);
+  const mass = empty + fuel + stores + (guns.wingCount + guns.noseCount) * 0.04;
+  const loading = (mass * 1000) / area;
+  // Speeds are with the gear tucked away (only fixed gear costs speed).
+  const drag = 1 + F.width * F.height * (jet ? 0.04 : 0.08) + (F.scoop ? 0.02 : 0) + (s.gear.type === "fixed" ? 0.1 : 0) + stores * 0.05;
+  let speed = jet ? 650 + s.engine.thrust * 15 - (W.plan === "swept" || W.plan === "delta" ? 0 : 150) : 300 + Math.sqrt(s.engine.hp) * 8.5 - area * 0.6 + (W.profile === "laminar" ? 18 : 0) + ({ two: 22, turbo: 30, single: 0, none: -25 }[s.engine.charger] ?? 0);
+  speed = Math.max(140, speed / drag);
+  const climb = jet ? (s.engine.thrust * 1000) / (mass * 1000 * 9.81) * 70 : (s.engine.hp * 0.7457 * 0.8) / (mass * 9.81) * 1.1;
+  const turn = 12 + loading / 25; // seconds for a full circle
+  const fire = guns.wingCount * guns.wingCal ** 2 * 0.0035 + guns.noseCount * guns.noseCal ** 2 * 0.0045;
+  // Litres per hour at cruise: about 0.2 per hp for pistons, 60 per kN for jets.
+  const range = (s.engine.fuel / Math.max(1, jet ? s.engine.thrust * 60 : s.engine.hp * 0.2)) * speed * 0.8;
+  let br = 1 + (speed - 300) / 85 + fire * 0.06 + (s.stores.bombs * s.stores.bombKg) / 900;
+  if (jet) br += 1.5;
+  if (loading > 280) warnings.push("Heavy wing loading: it'll turn like a bus. Make the wings bigger or the plane lighter.");
+  if (!jet && s.engine.hp / mass < 150) warnings.push("Not much power for its weight: slow climb ahead.");
+  return {
+    br: brStep(br),
+    mass,
+    headline: `${Math.round(speed)} km/h · ${guns.wingCount + guns.noseCount} guns`,
+    rows: [
+      row("speed", "Top speed", speed, "km/h", speed / 1100),
+      row("climb", "Climb rate", climb, "m/s", climb / 40, 1),
+      row("turn", "Turn time", turn, "s", 1 - turn / 40, 1),
+      row("fire", "Firepower", fire, "", fire / 25, 1),
+      row("loading", "Wing loading", loading, "kg/m²", loading / 450),
+      row("mass", "Weight", mass, "t", mass / 15, 1),
+      row("span", "Wingspan", W.span, "m", W.span / 40, 1),
+      row("range", "Range", range, "km", range / 3000),
+    ],
+    warnings,
+  };
+}
+
+function carStats(v) {
+  const B = v.spec.body;
+  const E = v.spec.engine;
+  const warnings = [];
+  const f1 = B.style === "f1";
+  const mass = f1 ? 0.8 : 0.75 + B.length * B.width * B.height * 0.055 + E.hp * 0.00025 + (B.style === "pickup" || B.style === "jeep" ? 0.35 : 0);
+  const kgPerHp = (mass * 1000) / E.hp;
+  const grip = (f1 ? 1.6 : 1) * (0.85 + B.wheelSize * 0.25) * (B.spoiler === "wing" ? 1.1 : 1);
+  const zeroTo100 = Math.max(1.8, 1.4 + kgPerHp * 0.42 / Math.min(1.4, grip)) * (E.nitro ? 0.88 : 1);
+  const drag = (f1 ? 0.75 : 0.9) * B.width * B.height * (B.style === "jeep" || B.style === "pickup" ? 1.35 : 1);
+  const top = Math.min(f1 ? 370 : 420, 95 + Math.cbrt(E.hp / drag) * 30) * (E.nitro ? 1.04 : 1);
+  if (kgPerHp > 20) warnings.push("Very little power for its weight: it'll be a calm ride.");
+  if (E.hp > 1200 && !f1 && B.spoiler === "none") warnings.push("That much power with no spoiler: hold on tight.");
+  return {
+    br: null,
+    mass,
+    headline: `${E.hp} hp · ${zeroTo100.toFixed(1)} s to 100`,
+    rows: [
+      row("speed", "Top speed", top, "km/h", top / 420),
+      row("accel", "0–100 km/h", zeroTo100, "s", 1 - zeroTo100 / 15, 1),
+      row("hp", "Power", E.hp, "hp", E.hp / 2000),
+      row("kgPerHp", "Weight per hp", kgPerHp, "kg/hp", 1 - kgPerHp / 25, 1),
+      row("grip", "Grip", grip * 100, "%", grip / 1.8),
+      row("mass", "Weight", mass * 1000, "kg", mass / 3),
+    ],
+    warnings,
+  };
 }
