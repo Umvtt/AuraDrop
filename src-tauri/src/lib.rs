@@ -4,6 +4,8 @@
 //! material, the system tray, minimize-to-tray behaviour, single-instance
 //! hand-off and reading files the user drops onto the window.
 
+mod update;
+
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -20,7 +22,7 @@ const TRAY_ID: &str = "main";
 const DESIGN_EXT: &str = "auradrop";
 /// Passed by the "start with Windows" Run entry the installer writes.
 const AUTOSTART_ARG: &str = "--autostart";
-const MAX_IMAGE_BYTES: u64 = 15 * 1024 * 1024;
+const MAX_MEDIA_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_DESIGN_BYTES: u64 = 50 * 1024 * 1024;
 
 struct AppState {
@@ -158,40 +160,66 @@ fn hide_to_tray(window: WebviewWindow) -> Result<(), String> {
     window.hide().map_err(|e| e.to_string())
 }
 
-/// Read a dropped image and return it as a `data:` URL.
+/// MIME type for the pictures and sounds AuraDrop can use.
+fn media_mime(path: &Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" | "oga" => "audio/ogg",
+        "m4a" => "audio/mp4",
+        "aac" => "audio/aac",
+        "flac" => "audio/flac",
+        "weba" => "audio/webm",
+        _ => return None,
+    })
+}
+
+/// Read a picked or dropped picture/sound and return it as a `data:` URL.
 ///
 /// Dropped paths are not part of any fs-plugin scope, so this is the one
-/// place the webview can read from them — and it only ever reads images.
+/// place the webview can read from them – and it only reads media files.
 #[tauri::command]
-async fn read_image_file(path: String) -> Result<String, String> {
+async fn read_media_file(path: String) -> Result<String, String> {
     let path = Path::new(&path);
-    let mime = match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("webp") => "image/webp",
-        Some("gif") => "image/gif",
-        Some("svg") => "image/svg+xml",
-        Some("bmp") => "image/bmp",
-        Some("avif") => "image/avif",
-        _ => return Err("That file isn't an image AuraDrop can use.".into()),
-    };
-
+    let mime = media_mime(path).ok_or("That file isn't a picture or sound AuraDrop can use.")?;
     let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
-    if size > MAX_IMAGE_BYTES {
+    if size > MAX_MEDIA_BYTES {
         return Err(format!(
-            "Images must be under {} MB.",
-            MAX_IMAGE_BYTES / 1024 / 1024
+            "Pictures and sounds must be under {} MB.",
+            MAX_MEDIA_BYTES / 1024 / 1024
         ));
     }
-
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(format!("data:{mime};base64,{encoded}"))
+}
+
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Option<update::UpdateInfo> {
+    update::check(&app.package_info().version.to_string()).await
+}
+
+/// Download and verify the update, start setup, then quit so setup can
+/// replace the app.
+#[tauri::command]
+async fn install_update(app: AppHandle, info: update::UpdateInfo) -> Result<(), String> {
+    let setup = update::download(&app, &info).await?;
+    update::launch_setup(&setup)?;
+    // Give the UI a moment to show "Installing…" before we go.
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        handle.exit(0);
+    });
+    Ok(())
 }
 
 /// Read a `.auradrop` design that arrived via the command line or a drop.
@@ -314,6 +342,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             minimize_to_tray: AtomicBool::new(true),
             launch_file: Mutex::new(launch_file),
@@ -355,7 +384,9 @@ pub fn run() {
             get_prefs,
             set_minimize_to_tray,
             hide_to_tray,
-            read_image_file,
+            read_media_file,
+            check_update,
+            install_update,
             read_design_file,
             take_launch_file,
         ])

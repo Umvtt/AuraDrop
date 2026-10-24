@@ -265,3 +265,72 @@ export function MeshPad({ points, selectedId, onSelect, onMove, background }) {
     </div>
   );
 }
+
+/** Colour swatch that opens the system picker, plus the hex value. */
+export function ColorInput({ label, value, onChange }) {
+  return (
+    <label className="press flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 bg-black/25 py-1 pr-2 pl-1 hover:border-white/20">
+      <span className="relative size-6 flex-none overflow-hidden rounded-md border border-white/25" style={{ background: value }}>
+        <input
+          type="color"
+          value={value}
+          aria-label={label}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 cursor-pointer opacity-0"
+        />
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[11.5px] text-ink/85">{label}</span>
+      <span className="font-mono text-[10.5px] text-muted uppercase">{value}</span>
+    </label>
+  );
+}
+
+export function Select({ label, value, onChange, options, hideLabel }) {
+  const id = useId();
+  return (
+    <div>
+      {!hideLabel && (
+        <label htmlFor={id} className="mb-1 block text-[12px] font-medium text-ink/90">
+          {label}
+        </label>
+      )}
+      <select
+        id={id}
+        aria-label={hideLabel ? label : undefined}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full cursor-pointer rounded-lg border border-white/10 bg-[#161722] px-2 py-1.5 text-[12.5px] text-ink focus:border-accent/70 focus:outline-none"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value} style={o.style}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/** Compact number box (position, size, rotation). */
+export function NumberInput({ label, value, onChange, step = 1, min, max, suffix }) {
+  const id = useId();
+  return (
+    <label htmlFor={id} className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/25 px-2 py-1 focus-within:border-accent/70">
+      <span className="text-[10.5px] font-semibold text-muted">{label}</span>
+      <input
+        id={id}
+        type="number"
+        value={Number.isFinite(value) ? Math.round(value * 100) / 100 : 0}
+        step={step}
+        min={min}
+        max={max}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (Number.isFinite(v)) onChange(v);
+        }}
+        className="w-full min-w-0 bg-transparent text-right font-mono text-[11.5px] text-ink focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+      />
+      {suffix && <span className="text-[10.5px] text-muted">{suffix}</span>}
+    </label>
+  );
+}

@@ -1,328 +1,409 @@
-// PNG export. DOM-to-image libraries can't capture `backdrop-filter`, so we
-// repaint the card ourselves on a canvas from the same design model, using
-// the same layout constants as the CSS.
+// PNG export: draws one page of a project on a canvas. DOM screenshots can't
+// capture backdrop-filter, so every element type is painted here from the
+// same model and geometry the player uses (shape paths, gradient lines,
+// glass tint spots), including real frosted blur for glass.
 
-import { BLEND_MODES, CARD_LAYOUT, orbLayout } from "./design.js";
-
-const SCENE_PADDING = 96;
+import { EMOJI_FONT, SPOTS, fontStack, gradientLine, rgba, shapePath } from "../player/player.js";
+import { loadFonts, usedFonts } from "./fonts.js";
 
 /**
- * @param {object} design
- * @param {{ scene?: boolean, scale?: number }} opts
+ * @param {object} project
+ * @param {number} pageIndex
+ * @param {{ scale?: number }} opts
  * @returns {Promise<Uint8Array>} PNG bytes
  */
-export async function renderPng(design, { scene = true, scale = 2 } = {}) {
-  const W = design.width;
-  const H = design.height;
-  const pad = scene ? SCENE_PADDING : 0;
-  const outW = (W + pad * 2) * scale;
-  const outH = (H + pad * 2) * scale;
+export async function renderPng(project, pageIndex = 0, { scale } = {}) {
+  const page = project.pages[pageIndex];
+  const { w, h } = project.canvas;
+  // Small canvases (classic 800px memes) export at 2× so they stay crisp;
+  // standard sizes like 1080 posts keep their exact pixel size.
+  const s = scale ?? (Math.max(w, h) < 1000 ? 2 : 1);
+  await loadFonts(usedFonts(project));
+  const images = await loadImages(project, page);
 
-  const [bgImage, avatarImage] = await Promise.all([
-    loadImage(design.content.background),
-    loadImage(design.content.avatar),
-  ]);
-  await loadFonts();
+  const canvas = makeCanvas(w * s, h * s);
+  const ctx = canvas.getContext("2d");
+  ctx.scale(s, s);
 
-  // The "world" behind the glass: obsidian plus the aura orbs. It is drawn
-  // even for card-only exports because the frost needs something to blur.
-  const backdrop = makeCanvas(outW, outH);
-  paintBackdrop(backdrop.getContext("2d"), design, outW, outH, scale, pad);
-
-  const out = makeCanvas(outW, outH);
-  const ctx = out.getContext("2d");
-  ctx.scale(scale, scale);
-
-  if (scene) {
-    ctx.drawImage(backdrop, 0, 0, outW / scale, outH / scale);
-    // Diffuse elevation shadow (matches the CSS box-shadow layers).
+  drawBackground(ctx, page.bg, w, h, images);
+  for (const el of page.elements) {
+    if (el.hidden || el.opacity <= 0) continue;
     ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
-    ctx.shadowBlur = 50;
-    ctx.shadowOffsetY = 20;
-    roundRect(ctx, pad, pad, W, H, design.radius);
-    ctx.fillStyle = "rgba(8, 9, 14, 1)";
-    ctx.fill();
+    ctx.translate(el.x + el.w / 2, el.y + el.h / 2);
+    ctx.rotate((el.rotation * Math.PI) / 180);
+    ctx.translate(-el.w / 2, -el.h / 2);
+    ctx.globalAlpha = el.opacity;
+    DRAW[el.type]?.(ctx, el, { images, canvas, s });
     ctx.restore();
   }
-
-  ctx.save();
-  ctx.translate(pad, pad);
-  roundRect(ctx, 0, 0, W, H, design.radius);
-  ctx.clip();
-
-  // Frosted backdrop.
-  ctx.save();
-  ctx.filter = `blur(${design.frost}px) saturate(160%)`;
-  ctx.drawImage(backdrop, -pad, -pad, outW / scale, outH / scale);
-  ctx.restore();
-
-  // Translucent white fill.
-  ctx.fillStyle = `rgba(255, 255, 255, ${design.fill})`;
-  ctx.fillRect(0, 0, W, H);
-
-  if (bgImage) {
-    ctx.save();
-    ctx.globalAlpha = design.content.backgroundOpacity;
-    drawCover(ctx, bgImage, 0, 0, W, H);
-    ctx.restore();
-  }
-
-  // Aura tint, blended like the CSS mix-blend-mode.
-  ctx.save();
-  ctx.globalAlpha = design.aura.strength;
-  ctx.globalCompositeOperation =
-    BLEND_MODES.find((b) => b.id === design.aura.blend)?.canvas ?? "source-over";
-  ctx.drawImage(paintMesh(design.aura, W * scale, H * scale), 0, 0, W, H);
-  ctx.restore();
-
-  // Static glare at its resting position.
-  const glare = Math.min(0.75, design.shine * 1.6) * 0.55;
-  const radial = ctx.createRadialGradient(W * 0.28, H * 0.18, 0, W * 0.28, H * 0.18, Math.max(W, H) * 0.55);
-  radial.addColorStop(0, `rgba(255,255,255,${glare})`);
-  radial.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = radial;
-  ctx.fillRect(0, 0, W, H);
-
-  // Inset highlights.
-  const inset = ctx.createLinearGradient(0, 0, 0, H);
-  inset.addColorStop(0, `rgba(255,255,255,${Math.min(1, design.shine * 1.4)})`);
-  inset.addColorStop(0.04, "rgba(255,255,255,0)");
-  inset.addColorStop(0.96, "rgba(255,255,255,0)");
-  inset.addColorStop(1, `rgba(255,255,255,${design.shine * 0.35})`);
-  ctx.fillStyle = inset;
-  ctx.fillRect(0, 0, W, H);
-
-  paintContent(ctx, design, avatarImage);
-  ctx.restore();
-
-  // Crisp 1px border, drawn on the pixel grid.
-  ctx.save();
-  ctx.translate(pad, pad);
-  roundRect(ctx, 0.5, 0.5, W - 1, H - 1, Math.max(0, design.radius - 0.5));
-  ctx.strokeStyle = `rgba(255, 255, 255, ${design.shine})`;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.restore();
 
   const blob = await new Promise((resolve, reject) =>
-    out.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't encode the PNG."))), "image/png"),
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't encode the PNG."))), "image/png"),
   );
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-function paintBackdrop(ctx, design, w, h, scale, pad) {
-  ctx.fillStyle = "#08090e";
+// ---------------------------------------------------------------------------
+
+function drawBackground(ctx, bg, w, h, images) {
+  ctx.fillStyle = bg.color;
   ctx.fillRect(0, 0, w, h);
-  if (!design.aura.orbs) return;
-  // Orbs are laid out in percent of a stage; map that onto the card plus a
-  // generous margin so the colour sits behind and around the glass.
-  const areaX = pad * scale - design.width * scale * 0.35;
-  const areaY = pad * scale - design.height * scale * 0.35;
-  const areaW = design.width * scale * 1.7;
-  const areaH = design.height * scale * 1.7;
-  ctx.save();
-  ctx.filter = `blur(${40 * scale}px)`;
-  ctx.globalAlpha = 0.6;
-  for (const orb of orbLayout(design.aura)) {
-    const cx = areaX + (orb.left / 100) * areaW;
-    const cy = areaY + (orb.top / 100) * areaH;
-    const r = (orb.size / 2) * scale;
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    g.addColorStop(0, orb.color);
-    g.addColorStop(0.7, hexAlpha(orb.color, 0));
+  if (bg.type === "gradient") {
+    const [x1, y1, x2, y2] = gradientLine(bg.angle, w, h);
+    const g = ctx.createLinearGradient(x1, y1, x2, y2);
+    bg.colors.forEach((c, i) => g.addColorStop(bg.colors.length === 1 ? 0 : i / (bg.colors.length - 1), c));
     ctx.fillStyle = g;
-    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    ctx.fillRect(0, 0, w, h);
+  } else if (bg.type === "image" && images.get(bg.asset)) {
+    ctx.save();
+    if (bg.blur) ctx.filter = `blur(${bg.blur}px)`;
+    const k = bg.blur ? 1.08 : 1;
+    drawFit(ctx, images.get(bg.asset), (w - w * k) / 2, (h - h * k) / 2, w * k, h * k, bg.fit);
+    ctx.restore();
+    if (bg.dim) {
+      ctx.fillStyle = `rgba(0,0,0,${bg.dim})`;
+      ctx.fillRect(0, 0, w, h);
+    }
+  } else if (bg.type === "mesh" && bg.orbs) {
+    const size = Math.max(w, h) * 0.6;
+    ctx.save();
+    ctx.filter = `blur(${Math.round(size * 0.07)}px)`;
+    ctx.globalAlpha = 0.7;
+    bg.colors.forEach((c, i) => {
+      const [sx, sy] = SPOTS[i % 5];
+      const cx = (sx / 100) * w;
+      const cy = (sy / 100) * h;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, size / 2);
+      g.addColorStop(0, c);
+      g.addColorStop(0.68, rgba(c, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
+    });
+    ctx.restore();
   }
+}
+
+/** Blur what's already been drawn behind a clip – the glass effect. */
+function frost(ctx, canvas, blur, s) {
+  const snapshot = makeCanvas(canvas.width, canvas.height);
+  snapshot.getContext("2d").drawImage(canvas, 0, 0);
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.filter = `blur(${blur * s}px) saturate(160%)`;
+  ctx.drawImage(snapshot, 0, 0);
   ctx.restore();
 }
 
-function paintMesh(aura, w, h) {
-  const c = makeCanvas(w, h);
-  const ctx = c.getContext("2d");
-  // CSS linear-gradient angle → canvas line through the centre.
-  const a = ((aura.angle - 90) * Math.PI) / 180;
-  const len = Math.abs(w * Math.cos(a)) + Math.abs(h * Math.sin(a));
-  const dx = (Math.cos(a) * len) / 2;
-  const dy = (Math.sin(a) * len) / 2;
-  const lin = ctx.createLinearGradient(w / 2 - dx, h / 2 - dy, w / 2 + dx, h / 2 + dy);
-  lin.addColorStop(0, aura.points[0].color);
-  lin.addColorStop(1, aura.points[aura.points.length - 1].color);
-  ctx.fillStyle = lin;
-  ctx.fillRect(0, 0, w, h);
-  // Radials are listed first in CSS, i.e. painted on top – so paint them
-  // last, in reverse order.
-  for (const p of [...aura.points].reverse()) {
-    const cx = (p.x / 100) * w;
-    const cy = (p.y / 100) * h;
-    // `circle at x y` with "farthest-corner" sizing, 62% stop.
-    const r = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)) * 0.62;
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    g.addColorStop(0, p.color);
-    g.addColorStop(1, hexAlpha(p.color, 0));
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-  }
-  return c;
-}
+const DRAW = {
+  text(ctx, el) {
+    const size = el.size;
+    ctx.font = `${el.weight} ${size}px ${fontStack(el.font)}`;
+    if ("letterSpacing" in ctx) ctx.letterSpacing = `${el.spacing}px`;
+    const raw = el.upper ? el.text.toUpperCase() : el.text;
+    const pad = el.bg?.on ? el.bg.pad : 0;
+    const lines = wrapText(ctx, raw, Math.max(1, el.w - pad * 2));
+    const lh = size * el.lineHeight;
+    const blockH = lines.length * lh;
+    const top = (el.h - blockH) / 2;
+    const widths = lines.map((l) => ctx.measureText(l).width);
+    const xFor = (lw) => (el.align === "left" ? pad : el.align === "right" ? el.w - pad - lw : (el.w - lw) / 2);
 
-function paintContent(ctx, design, avatarImage) {
-  const L = CARD_LAYOUT;
-  const { content } = design;
-  const W = design.width;
-  const H = design.height;
-  const innerW = W - L.padding * 2;
-  let y = L.padding;
-  ctx.fillStyle = "#fff";
-  ctx.textBaseline = "alphabetic";
-
-  if (content.avatar || content.emoji) {
-    const r = L.avatar / 2;
-    const cx = L.padding + r;
-    const cy = y + r;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255,255,255,0.14)";
-    ctx.fill();
-    if (avatarImage) {
+    if (el.bg?.on) {
+      const bw = Math.min(el.w, Math.max(...widths) + pad * 2);
+      const bx = el.align === "left" ? 0 : el.align === "right" ? el.w - bw : (el.w - bw) / 2;
+      ctx.fillStyle = rgba(el.bg.color, el.bg.opacity);
+      ctx.beginPath();
+      ctx.roundRect(bx, top - pad, bw, blockH + pad * 2, el.bg.radius);
+      ctx.fill();
+    }
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    const each = (fn) => lines.forEach((l, i) => fn(l, xFor(widths[i]), top + lh * i + lh / 2));
+    if (el.shadow?.on) {
       ctx.save();
-      ctx.clip();
-      drawCover(ctx, avatarImage, cx - r, cy - r, r * 2, r * 2);
+      ctx.shadowColor = rgba(el.shadow.color, el.shadow.opacity);
+      ctx.shadowBlur = el.shadow.blur;
+      ctx.shadowOffsetX = el.shadow.x;
+      ctx.shadowOffsetY = el.shadow.y;
+      ctx.fillStyle = el.stroke.width ? el.stroke.color : el.color;
+      if (el.stroke.width) {
+        ctx.strokeStyle = el.stroke.color;
+        ctx.lineWidth = el.stroke.width * 2;
+        ctx.lineJoin = "round";
+        each((l, x, y) => ctx.strokeText(l, x, y));
+      } else each((l, x, y) => ctx.fillText(l, x, y));
       ctx.restore();
-    } else {
-      ctx.fillStyle = "#fff";
-      ctx.font = `28px "Segoe UI Emoji", "Apple Color Emoji", ${L.fontFamily}`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(content.emoji, cx, cy + 1);
     }
-    ctx.beginPath();
-    ctx.arc(cx, cy, r - 0.5, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(255,255,255,0.3)";
-    ctx.stroke();
-    ctx.restore();
-    y += L.avatar + L.gap;
-  }
-
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
-  if (content.title) {
-    const lineH = L.titleSize * 1.25;
-    ctx.font = `650 ${L.titleSize}px ${L.fontFamily}`;
-    ctx.fillStyle = "#fff";
-    ctx.fillText(ellipsize(ctx, content.title, innerW), L.padding, y + lineH * 0.8);
-    y += lineH;
-  }
-
-  const buttonTop = H - L.padding - L.buttonHeight;
-  if (content.subtitle) {
-    y += 6;
-    const lineH = L.subtitleSize * 1.45;
-    ctx.font = `400 ${L.subtitleSize}px ${L.fontFamily}`;
-    ctx.fillStyle = "rgba(255,255,255,0.75)";
-    const lines = wrap(ctx, content.subtitle, innerW, L.subtitleLines);
-    for (const line of lines) {
-      if (y + lineH > (content.button ? buttonTop : H - L.padding) + 2) break;
-      ctx.fillText(line, L.padding, y + lineH * 0.76);
-      y += lineH;
+    if (el.stroke.width) {
+      ctx.strokeStyle = el.stroke.color;
+      ctx.lineWidth = el.stroke.width * 2;
+      ctx.lineJoin = "round";
+      ctx.miterLimit = 2;
+      each((l, x, y) => ctx.strokeText(l, x, y));
     }
-  }
+    ctx.fillStyle = el.color;
+    each((l, x, y) => ctx.fillText(l, x, y));
+  },
 
-  if (content.button) {
-    ctx.font = `600 ${L.buttonSize}px ${L.fontFamily}`;
-    const label = ellipsize(ctx, content.button, innerW - L.buttonPadX * 2);
-    const bw = Math.min(innerW, ctx.measureText(label).width + L.buttonPadX * 2 + 2);
-    const bh = L.buttonHeight;
-    roundRect(ctx, L.padding + 0.5, buttonTop + 0.5, bw - 1, bh - 1, bh / 2);
-    ctx.fillStyle = "rgba(255,255,255,0.16)";
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.35)";
-    ctx.stroke();
-    ctx.fillStyle = "#fff";
+  sticker(ctx, el) {
+    const size = Math.min(el.w, el.h) * 0.84;
+    ctx.font = `${size}px ${EMOJI_FONT}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(label, L.padding + bw / 2, buttonTop + bh / 2 + 1);
-  }
-}
+    ctx.fillText(el.emoji, el.w / 2, el.h / 2 + size * 0.04);
+  },
+
+  image(ctx, el, { images }) {
+    const img = images.get(el.asset);
+    if (!img) return;
+    if (el.shadow) outerShadow(ctx, el.w, el.h, Math.min(el.radius, el.w / 2, el.h / 2), "rgba(0,0,0,.45)", 40, 18);
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(0, 0, el.w, el.h, Math.min(el.radius, el.w / 2, el.h / 2));
+    ctx.clip();
+    const f = el.filters;
+    ctx.filter = [
+      f.brightness !== 100 && `brightness(${f.brightness}%)`,
+      f.contrast !== 100 && `contrast(${f.contrast}%)`,
+      f.saturate !== 100 && `saturate(${f.saturate}%)`,
+      f.hue && `hue-rotate(${f.hue}deg)`,
+      f.grayscale && `grayscale(${f.grayscale}%)`,
+      f.blur && `blur(${f.blur}px)`,
+    ]
+      .filter(Boolean)
+      .join(" ") || "none";
+    if (el.flipX || el.flipY) {
+      ctx.translate(el.flipX ? el.w : 0, el.flipY ? el.h : 0);
+      ctx.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
+    }
+    drawFit(ctx, img, 0, 0, el.w, el.h, el.fit);
+    ctx.restore();
+    if (el.border.width) {
+      ctx.strokeStyle = el.border.color;
+      ctx.lineWidth = el.border.width;
+      const b = el.border.width / 2;
+      ctx.beginPath();
+      ctx.roundRect(b, b, el.w - b * 2, el.h - b * 2, Math.max(0, Math.min(el.radius, el.w / 2, el.h / 2) - b));
+      ctx.stroke();
+    }
+  },
+
+  shape(ctx, el) {
+    const b = el.border.width;
+    const path = new Path2D(shapePath(el.shape, el.w, el.h, el.radius, b / 2));
+    if (el.fill.type === "gradient") {
+      const [x1, y1, x2, y2] = gradientLine(el.fill.angle, el.w, el.h);
+      const g = ctx.createLinearGradient(x1, y1, x2, y2);
+      g.addColorStop(0, el.fill.color);
+      g.addColorStop(1, el.fill.color2);
+      ctx.fillStyle = g;
+    } else ctx.fillStyle = el.fill.color;
+    if (el.shadow) {
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,.4)";
+      ctx.shadowBlur = 30;
+      ctx.shadowOffsetY = 16;
+      ctx.fill(path);
+      ctx.restore();
+    }
+    ctx.fill(path);
+    if (b) {
+      ctx.strokeStyle = el.border.color;
+      ctx.lineWidth = b;
+      ctx.lineJoin = "round";
+      ctx.stroke(path);
+    }
+  },
+
+  glass(ctx, el, { canvas, s }) {
+    const r = Math.min(el.radius, el.w / 2, el.h / 2);
+    // Elevation shadow first, then frost what's behind inside the clip.
+    outerShadow(ctx, el.w, el.h, r, "rgba(0,0,0,.4)", 60, 24);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(0, 0, el.w, el.h, r);
+    ctx.clip();
+    frost(ctx, canvas, el.frost, s);
+    ctx.fillStyle = `rgba(255,255,255,${el.fill})`;
+    ctx.fillRect(0, 0, el.w, el.h);
+    // Tint
+    ctx.save();
+    ctx.globalAlpha *= el.tint.strength;
+    ctx.globalCompositeOperation = el.tint.blend === "normal" ? "source-over" : el.tint.blend;
+    const cs = el.tint.colors;
+    const lin = ctx.createLinearGradient(0, 0, el.w, el.h);
+    lin.addColorStop(0, cs[0]);
+    lin.addColorStop(1, cs[cs.length - 1]);
+    ctx.fillStyle = lin;
+    ctx.fillRect(0, 0, el.w, el.h);
+    for (let i = cs.length - 1; i >= 0; i--) {
+      const [sx, sy] = SPOTS[i % 5];
+      const cx = (sx / 100) * el.w;
+      const cy = (sy / 100) * el.h;
+      const rad = Math.hypot(Math.max(cx, el.w - cx), Math.max(cy, el.h - cy)) * 0.62;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+      g.addColorStop(0, cs[i]);
+      g.addColorStop(1, rgba(cs[i], 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, el.w, el.h);
+    }
+    ctx.restore();
+    // Glare
+    const [x1, y1, x2, y2] = gradientLine(160, el.w, el.h);
+    const glare = ctx.createLinearGradient(x1, y1, x2, y2);
+    glare.addColorStop(0, `rgba(255,255,255,${Math.min(0.6, el.shine * 1.2)})`);
+    glare.addColorStop(0.45, "rgba(255,255,255,0)");
+    ctx.fillStyle = glare;
+    ctx.fillRect(0, 0, el.w, el.h);
+    ctx.restore();
+
+    ctx.strokeStyle = `rgba(255,255,255,${el.shine})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(0.5, 0.5, el.w - 1, el.h - 1, Math.max(0, r - 0.5));
+    ctx.stroke();
+  },
+
+  button(ctx, el, { canvas, s }) {
+    const r = Math.min(el.radius, el.w / 2, el.h / 2);
+    const outline = el.variant === "outline";
+    if (!outline) outerShadow(ctx, el.w, el.h, r, rgba(el.color, 0.35), 26, 10);
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(0, 0, el.w, el.h, r);
+    ctx.clip();
+    if (el.variant === "glass") {
+      frost(ctx, canvas, 16, s);
+      ctx.fillStyle = "rgba(255,255,255,.08)";
+      ctx.fillRect(0, 0, el.w, el.h);
+      const g = ctx.createLinearGradient(...gradientLine(135, el.w, el.h));
+      g.addColorStop(0, rgba(el.color, 0.42));
+      g.addColorStop(1, rgba(el.color2, 0.42));
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, el.w, el.h);
+    } else if (el.variant === "gradient") {
+      const g = ctx.createLinearGradient(...gradientLine(135, el.w, el.h));
+      g.addColorStop(0, el.color);
+      g.addColorStop(1, el.color2);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, el.w, el.h);
+    } else if (el.variant === "solid") {
+      ctx.fillStyle = el.color;
+      ctx.fillRect(0, 0, el.w, el.h);
+    }
+    ctx.restore();
+    ctx.lineWidth = outline ? 3 : 1;
+    ctx.strokeStyle = outline ? el.color : `rgba(255,255,255,${el.variant === "glass" ? 0.3 : 0.16})`;
+    ctx.beginPath();
+    const b = ctx.lineWidth / 2;
+    ctx.roundRect(b, b, el.w - b * 2, el.h - b * 2, Math.max(0, r - b));
+    ctx.stroke();
+
+    // Label: optional emoji icon + text, centred together.
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    const gap = el.icon && el.label ? el.size * 0.4 : 0;
+    ctx.font = `${el.size}px ${EMOJI_FONT}`;
+    const iw = el.icon ? ctx.measureText(el.icon).width : 0;
+    ctx.font = `${el.weight} ${el.size}px ${fontStack(el.font)}`;
+    const tw = el.label ? ctx.measureText(el.label).width : 0;
+    let x = (el.w - (iw + gap + tw)) / 2;
+    if (el.icon) {
+      ctx.font = `${el.size}px ${EMOJI_FONT}`;
+      ctx.fillText(el.icon, x, el.h / 2);
+      x += iw + gap;
+    }
+    if (el.label) {
+      ctx.font = `${el.weight} ${el.size}px ${fontStack(el.font)}`;
+      ctx.fillStyle = outline ? el.color : el.textColor;
+      ctx.fillText(el.label, x, el.h / 2 + el.size * 0.04);
+    }
+  },
+};
 
 // ---------------------------------------------------------------------------
 
-/** Canvas text silently falls back if a font isn't loaded yet. */
-async function loadFonts() {
-  if (!document.fonts) return;
-  const family = '"Inter Variable"';
-  const L = CARD_LAYOUT;
-  try {
-    await Promise.all([
-      document.fonts.load(`650 ${L.titleSize}px ${family}`),
-      document.fonts.load(`400 ${L.subtitleSize}px ${family}`),
-      document.fonts.load(`600 ${L.buttonSize}px ${family}`),
-    ]);
-  } catch {
-    // Fall back to the next font in the stack.
-  }
-  await document.fonts.ready;
+/** A shadow that, like CSS box-shadow, only shows outside the shape. */
+function outerShadow(ctx, w, h, r, color, blur, offsetY) {
+  ctx.save();
+  const outside = new Path2D();
+  outside.rect(-1e5, -1e5, 2e5, 2e5);
+  outside.roundRect(0, 0, w, h, r);
+  ctx.clip(outside, "evenodd");
+  ctx.shadowColor = color;
+  ctx.shadowBlur = blur;
+  ctx.shadowOffsetY = offsetY;
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.roundRect(0, 0, w, h, r);
+  ctx.fill();
+  ctx.restore();
 }
 
 function makeCanvas(w, h) {
   const c = document.createElement("canvas");
-  c.width = Math.round(w);
-  c.height = Math.round(h);
+  c.width = Math.max(1, Math.round(w));
+  c.height = Math.max(1, Math.round(h));
   return c;
 }
 
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2));
-}
-
-function drawCover(ctx, img, x, y, w, h) {
-  const s = Math.max(w / img.width, h / img.height);
-  const iw = img.width * s;
-  const ih = img.height * s;
+function drawFit(ctx, img, x, y, w, h, fit) {
+  if (fit === "fill") return ctx.drawImage(img, x, y, w, h);
+  const k = fit === "contain" ? Math.min(w / img.width, h / img.height) : Math.max(w / img.width, h / img.height);
+  const iw = img.width * k;
+  const ih = img.height * k;
   ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
 }
 
-function loadImage(src) {
-  if (!src) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
+async function loadImages(project, page) {
+  const ids = new Set();
+  if (page.bg.type === "image" && page.bg.asset) ids.add(page.bg.asset);
+  for (const el of page.elements) if (el.type === "image" && el.asset) ids.add(el.asset);
+  const map = new Map();
+  await Promise.all(
+    [...ids].map(
+      (id) =>
+        new Promise((resolve) => {
+          const a = project.assets[id];
+          if (!a) return resolve();
+          const img = new Image();
+          img.onload = () => {
+            map.set(id, img);
+            resolve();
+          };
+          img.onerror = () => resolve();
+          img.src = a.data;
+        }),
+    ),
+  );
+  return map;
 }
 
-function hexAlpha(hex, alpha) {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
-}
-
-function ellipsize(ctx, text, maxW) {
-  if (ctx.measureText(text).width <= maxW) return text;
-  let s = text;
-  while (s.length > 1 && ctx.measureText(s + "…").width > maxW) s = s.slice(0, -1);
-  return s + "…";
-}
-
-function wrap(ctx, text, maxW, maxLines) {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines = [];
-  let line = "";
-  for (let i = 0; i < words.length; i++) {
-    const test = line ? `${line} ${words[i]}` : words[i];
-    if (ctx.measureText(test).width <= maxW || !line) {
-      line = test;
-    } else {
-      lines.push(line);
-      line = words[i];
-      if (lines.length === maxLines - 1) {
-        line = words.slice(i).join(" ");
-        break;
+/** Wrap text like the player's pre-wrap + overflow-wrap:anywhere. */
+export function wrapText(ctx, text, maxW) {
+  const out = [];
+  for (const para of text.split("\n")) {
+    const words = para.split(/(\s+)/);
+    let line = "";
+    for (const word of words) {
+      const test = line + word;
+      if (!line || ctx.measureText(test).width <= maxW) {
+        line = test;
+        continue;
+      }
+      out.push(line.trimEnd());
+      line = word.trimStart();
+      // A single word wider than the box breaks anywhere.
+      while (line && ctx.measureText(line).width > maxW) {
+        let cut = line.length - 1;
+        while (cut > 1 && ctx.measureText(line.slice(0, cut)).width > maxW) cut--;
+        out.push(line.slice(0, cut));
+        line = line.slice(cut);
       }
     }
+    out.push(line.trimEnd());
   }
-  if (line) lines.push(lines.length === maxLines - 1 ? ellipsize(ctx, line, maxW) : line);
-  return lines.slice(0, maxLines);
+  return out;
 }

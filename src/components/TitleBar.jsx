@@ -117,6 +117,9 @@ export function TitleBar({
   onSave,
   onClose,
   settings,
+  mode,
+  onPreview,
+  onEdit,
 }) {
   const [maximized, setMaximized] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -143,12 +146,16 @@ export function TitleBar({
       </div>
 
       <div className="flex items-center gap-0.5 rounded-xl bg-white/[0.04] p-0.5">
-        <IconButton label="New design (Ctrl+N)" onClick={onNew}>{Icons.file}</IconButton>
-        <IconButton label="Open design (Ctrl+O)" onClick={onOpen}>{Icons.open}</IconButton>
-        <IconButton label="Save design (Ctrl+S)" onClick={onSave}>{Icons.save}</IconButton>
-        <span className="mx-0.5 h-4 w-px bg-white/10" />
-        <IconButton label="Undo (Ctrl+Z)" onClick={onUndo} disabled={!canUndo}>{Icons.undo}</IconButton>
-        <IconButton label="Redo (Ctrl+Y)" onClick={onRedo} disabled={!canRedo}>{Icons.redo}</IconButton>
+        <IconButton label="New project (Ctrl+N)" onClick={onNew}>{Icons.file}</IconButton>
+        <IconButton label="Open project (Ctrl+O)" onClick={onOpen}>{Icons.open}</IconButton>
+        {mode !== "start" && <IconButton label="Save .auradrop (Ctrl+S)" onClick={onSave}>{Icons.save}</IconButton>}
+        {mode === "edit" && (
+          <>
+            <span className="mx-0.5 h-4 w-px bg-white/10" />
+            <IconButton label="Undo (Ctrl+Z)" onClick={onUndo} disabled={!canUndo}>{Icons.undo}</IconButton>
+            <IconButton label="Redo (Ctrl+Y)" onClick={onRedo} disabled={!canRedo}>{Icons.redo}</IconButton>
+          </>
+        )}
       </div>
 
       <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center justify-center gap-2 px-3">
@@ -157,6 +164,27 @@ export function TitleBar({
         </span>
         {dirty && <span className="size-1.5 flex-none rounded-full bg-accent" title="Unsaved changes" />}
       </div>
+
+      {mode === "edit" && (
+        <button
+          type="button"
+          onClick={onPreview}
+          title="Try it out: buttons work in Preview (F5)"
+          className="press focus-ring mr-1 flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-accent to-accent-2 px-3.5 py-1.5 text-[12.5px] font-semibold text-[#0b0c12] shadow-[0_6px_18px_rgba(167,139,250,0.35)] hover:brightness-110"
+        >
+          ▶ Preview
+        </button>
+      )}
+      {mode === "preview" && (
+        <button
+          type="button"
+          onClick={onEdit}
+          title="Switch to editing (F5)"
+          className="press focus-ring mr-1 flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.08] px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-white/[0.14]"
+        >
+          ✏️ Edit
+        </button>
+      )}
 
       <div ref={settingsRef} className="relative">
         <IconButton label="Settings" onClick={() => setMenuOpen((o) => !o)} active={menuOpen}>

@@ -37,13 +37,19 @@ export function useHistory(initial) {
     bump();
   }, []);
 
+  /**
+   * `step: true` makes the change its own undo step (adding, deleting…);
+   * otherwise rapid changes such as slider drags are merged into one.
+   */
   const set = useCallback(
-    (updater) => {
+    (updater, { step = false } = {}) => {
+      if (step) flush();
       const next = typeof updater === "function" ? updater(presentRef.current) : updater;
       if (next === presentRef.current) return;
       show(next);
       clearTimeout(timer.current);
-      timer.current = setTimeout(flush, SETTLE_MS);
+      if (step) flush();
+      else timer.current = setTimeout(flush, SETTLE_MS);
       if (future.current.length) bump();
     },
     [flush],

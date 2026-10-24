@@ -62,13 +62,19 @@ struct Info {
     #[serde(flatten)]
     info: setup::SetupInfo,
     autostart_enabled: bool,
+    /// Started by AuraDrop's updater: install straight away, then reopen it.
+    auto_update: bool,
 }
+
+/// Set when launched with `--update` (by AuraDrop's update screen).
+static AUTO_UPDATE: AtomicBool = AtomicBool::new(false);
 
 #[tauri::command]
 async fn get_info() -> Info {
     tauri::async_runtime::spawn_blocking(|| Info {
         info: setup::info(),
         autostart_enabled: setup::autostart_enabled(),
+        auto_update: AUTO_UPDATE.load(Ordering::SeqCst),
     })
     .await
     .expect("info task panicked")
@@ -168,6 +174,7 @@ Options for --silent:
   --no-assoc          don't open .auradrop files with AuraDrop
   --autostart         start AuraDrop in the tray when you sign in
   --launch            open AuraDrop when done
+  --update            update in place, keeping shortcuts and options
   --uninstall         remove AuraDrop instead
 
 Exit codes: 0 ok, 1 bad arguments, 2 failed (details on stderr).";
@@ -190,6 +197,7 @@ fn run_silent(args: &[String]) -> i32 {
         desktop_shortcut: true,
         autostart: false,
         associate: true,
+        update: false,
     };
     let (mut launch, mut remove) = (false, false);
     let mut it = args.iter();
@@ -208,6 +216,7 @@ fn run_silent(args: &[String]) -> i32 {
             "--autostart" => opts.autostart = true,
             "--launch" => launch = true,
             "--uninstall" => remove = true,
+            "--update" => opts.update = true,
             "--help" | "-h" | "/?" => {
                 println!("{SILENT_HELP}");
                 return 0;
@@ -289,6 +298,7 @@ pub fn run() -> i32 {
     {
         return run_silent(&args);
     }
+    AUTO_UPDATE.store(args.iter().any(|a| a == "--update"), Ordering::SeqCst);
     if cfg!(target_os = "windows") && tauri::webview_version().is_err() {
         return run_classic_fallback();
     }

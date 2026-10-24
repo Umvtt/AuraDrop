@@ -45,6 +45,10 @@ pub struct InstallOptions {
     pub desktop_shortcut: bool,
     pub autostart: bool,
     pub associate: bool,
+    /// Update in place: keep the shortcuts, association and startup entry
+    /// the user already has (the other options are ignored).
+    #[serde(default)]
+    pub update: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -209,6 +213,10 @@ fn no_access(dir: &str, e: &std::io::Error) -> String {
 /// and stay unquoted even with spaces (see `system::run_and_wait`).
 pub fn installer_args(opts: &InstallOptions) -> (Vec<String>, String) {
     let mut args = vec!["/S".to_string()];
+    if opts.update {
+        args.push("/UPDATE".into());
+        return (args, format!("/D={}", opts.dir.trim()));
+    }
     if !opts.desktop_shortcut {
         args.push("/NS".into());
     }
@@ -280,6 +288,16 @@ pub fn install(
     progress: &dyn Fn(Step),
 ) -> Result<InstallReport, SetupError> {
     progress(Step::Check);
+    if opts.update {
+        // AuraDrop starts us and then quits; give it a moment to close so
+        // the installer doesn't have to force it.
+        for _ in 0..40 {
+            if !is_app_running() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    }
     let dir = opts.dir.trim().to_string();
     validate_dir(&dir).map_err(|m| SetupError::new(Step::Check, m, format!("dir={dir}")))?;
 
@@ -461,6 +479,7 @@ mod tests {
             desktop_shortcut: desktop,
             associate: assoc,
             autostart: auto,
+            update: false,
         }
     }
 
@@ -471,6 +490,10 @@ mod tests {
         assert_eq!(tail, r"/D=C:\A");
         let (args, tail) = installer_args(&opts(false, false, true, r"D:\My Apps\AuraDrop "));
         assert_eq!(args, ["/S", "/NS", "/NOASSOC", "/AUTOSTART"]);
+        // Updates keep the user's choices: only /UPDATE is passed.
+        let mut o = opts(false, false, true, r"C:\A");
+        o.update = true;
+        assert_eq!(installer_args(&o).0, ["/S", "/UPDATE"]);
         assert_eq!(tail, r"/D=D:\My Apps\AuraDrop");
     }
 

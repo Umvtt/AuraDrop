@@ -13,6 +13,11 @@
 }
 
 /* The window itself is transparent so Mica / Acrylic shows through the chrome. */
+/* Native controls (dropdown lists, scrollbars) follow the dark theme. */
+:root {
+  color-scheme: dark;
+}
+
 html,
 body,
 #root {

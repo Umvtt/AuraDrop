@@ -4,6 +4,7 @@
 ;   /NS         no desktop shortcut (built in; we also remove an old one)
 ;   /NOASSOC    don't open .auradrop files with AuraDrop
 ;   /AUTOSTART  start AuraDrop hidden in the tray when you sign in
+;   /UPDATE     (built in) update in place: none of the above change
 ;
 ; In a silent install an option that isn't passed is removed, so running
 ; setup again with a box unticked undoes it. The classic (non-silent)
@@ -21,6 +22,8 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; Updates (/UPDATE) keep whatever the user chose before.
+  ${If} $UpdateMode <> 1
   ; File association
   ${GetOptions} $CMDLINE "/NOASSOC" $R8
   ${If} ${Errors}
@@ -52,6 +55,7 @@
         Delete "$DESKTOP\${PRODUCTNAME}.lnk"
       ${EndIf}
     ${EndIf}
+  ${EndIf}
   ${EndIf}
 
   ; Tell Explorer that file associations changed (SHCNE_ASSOCCHANGED).

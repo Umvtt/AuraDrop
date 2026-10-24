@@ -1,61 +1,68 @@
 # AuraDrop
 
-A playful glassmorphic UI builder for Windows. Design a frosted-glass card with a live 3D tilt, mesh-gradient aura and one-click animations, then copy it out as CSS, HTML or Tailwind, or export a PNG.
+A meme maker and interactive canvas for Windows, with a glassy look. Put pictures, meme captions, stickers, shapes, glass panels and buttons on a canvas. Make the buttons *do* things (open links, play sounds, confetti, popups, jump between pages), then share it as a `.auradrop` file, a PNG or a web page that works in any browser.
 
 Built with **Tauri v2**, **Rust**, **React 19** and **Tailwind CSS v4**.
 
-## Features (Phase 1)
+## Features
 
-- **Frameless glass window** with Windows 11 **Mica**, falling back to **Acrylic** and then a solid background. Switch it under ⚙ Settings.
-- **Custom title bar** with drag region, double-click to maximize, and glass minimize/maximize/close buttons.
-- **System tray**: left-click to show/hide, plus a menu with *Show*, *Minimize to tray* and *Quit*. Minimizing hides to the tray (toggleable).
-- **Live stage** with spring-physics 3D tilt and a glare that follows the cursor.
-- **Magic Studio** with Frostiness, Glass Shine, Squish & Shape, Color & Aura (draggable mesh points, angle wheel, blend styles, drifting orbs), Vibes, 3D Tilt and Card Content.
-- **Starter looks**, **Surprise me** and undo/redo.
-- **Export hub**: copy CSS / HTML / Tailwind to the clipboard, peek at the code, and export a 2× PNG with or without the background.
-- **Files**: save/open `.auradrop` designs (Ctrl+S / Ctrl+Shift+S / Ctrl+O / Ctrl+N). Drop images from Explorer onto the card or avatar, and drop `.auradrop` files to open them. The installer registers the `.auradrop` file type.
+- **Templates:** classic meme, two-panel, reaction, soundboard, link hub, quiz, glass card or a blank canvas, in sizes from square posts to phone stories.
+- **Layers:**
+  - Text and meme captions, with 11 bundled fonts, outlines, shadows and highlight boxes.
+  - Pictures and GIFs, with fit, corners, borders, flips and filters (incl. "deep fry").
+  - Emoji stickers.
+  - Shapes: box, circle, triangle, star, heart, speech bubble and arrow, with solid or gradient fill.
+  - Frosted glass panels with an aura tint and 3D tilt.
+  - Buttons in glass, gradient, solid or outline style.
+- **Editing:** drag, resize and rotate on the canvas, with snap guides. Double-click text to type, plus zoom, undo/redo, copy/paste, layer order, lock, and "hide at start".
+- **Button actions (any layer can have them):** open a link (people are asked first), play a sound, confetti, shake the screen, show a popup, show or hide another layer, and go to a page.
+- **Pages:** build quizzes and stories. Each page has its own background (aura orbs, gradient, solid or picture) and a transition.
+- **Animations:** float, pulse, bounce, wiggle, shake, spin, swing, pop-in and slide-in, each with its own speed and delay.
+- **Preview:** shows the project with working buttons. Opening a `.auradrop` file starts in Preview; ✏️ **Edit** switches to the editor (F5 toggles).
+- **Save & export:** **Save .auradrop**, **Export PNG** (the current page, including real glass blur) and **Web page** (one self-contained `.html` file with images, sounds and fonts, buttons included).
+- **Drag-and-drop:**
+  - Drop pictures onto the canvas, or onto an image layer to replace it.
+  - Drop sounds to make a sound button, or onto a layer to make it play the sound.
+  - Drop a `.auradrop` file to open it.
+- **Updates:** AuraDrop checks GitHub Releases and shows a required-update screen with one-click update. If it can't check (offline), it never locks you out.
+- **Windows integration:** Mica/Acrylic window, system tray, start with Windows (hidden in the tray), and `.auradrop` file association.
+- **Old files:** `.auradrop` files from 0.1 (single glass cards) open automatically.
 
-The live preview is rendered with the same CSS the export hub generates, so what you copy is what you saw.
+## Releasing an update
 
-## Prerequisites (Windows)
+1. Bump `version` in `src-tauri/tauri.conf.json` (and `package.json`), and describe the changes in `RELEASE_NOTES.md`. The update screen shows these notes.
+2. Push to GitHub, then open **Actions → Release → Run workflow** and tick **publish**.
 
-1. [Node.js](https://nodejs.org/) 20+
-2. [Rust](https://rustup.rs/) (MSVC toolchain)
-3. Microsoft C++ Build Tools ("Desktop development with C++")
-4. WebView2. It's preinstalled on Windows 11.
+The workflow builds the installer on Windows and runs the tests. It installs, updates and uninstalls on a real Windows machine, then publishes the release. Every installed AuraDrop 0.2+ then shows the required update.
 
-See <https://v2.tauri.app/start/prerequisites/>.
-
-## Run
+## Develop
 
 ```powershell
 npm install
-npm run tauri dev        # desktop app with hot reload
+npm run tauri dev        # app with hot reload
 npm run installer:build  # glass installer -> dist-installer/AuraDrop-Setup-<version>.exe
-npm run installer:dev    # work on the installer UI (needs a built payload to install)
+npm run installer:dev    # work on the installer UI
+npm test                 # unit tests
 ```
 
-The repo holds two Tauri projects, the app (`src-tauri`) and its installer (`installer/src-tauri`), so `npm run tauri …` always targets the app explicitly (see `scripts/tauri.mjs`).
+Prerequisites: Node.js 20+, Rust (MSVC) and the "Desktop development with C++" build tools. See <https://v2.tauri.app/start/prerequisites/>. `npm run dev` runs the UI in a browser, using browser fallbacks for native features.
 
-`npm run dev` runs the UI in a normal browser. Native features fall back to browser equivalents there: downloads instead of save dialogs, HTML5 drag-and-drop, and no window material.
-
-```powershell
-npm test               # unit tests (design files, code generation, tilt physics)
-```
+The repo holds two Tauri projects, the app (`src-tauri`) and its installer (`installer/src-tauri`), so `scripts/tauri.mjs` always tells the Tauri CLI which one to use.
 
 ## Installer
 
-`AuraDrop-Setup.exe` is a small frameless glass app, built with the same design as AuraDrop. The actual installation is done by AuraDrop's standard NSIS installer, which is embedded in it and runs silently. That installer also provides the uninstaller and the Add/Remove Programs entry.
+`AuraDrop-Setup.exe` is a small frameless glass app. The actual installation is done by AuraDrop's standard NSIS installer, which is embedded in it and runs silently. That installer also provides the uninstaller and the Add/Remove Programs entry.
 
-- **Pages:** Welcome, Options, Installing (live steps), Done. It also handles Update, Reinstall, Uninstall, "AuraDrop is open" and error screens with copyable details.
-- **Options:** install folder, desktop shortcut, open `.auradrop` files with AuraDrop, start with Windows (hidden in the tray), and open when finished. A Start menu shortcut is always added.
-- **Per user:** installs into `%LOCALAPPDATA%\AuraDrop` with no administrator prompt.
+- **Pages:** Welcome, Options, Installing (live steps), Done. It also handles Update, Reinstall, Uninstall, "AuraDrop is open" and error screens.
+- **Options:** install folder, desktop shortcut, `.auradrop` association, start with Windows, open when finished. A Start menu shortcut is always added.
+- **Per user:** installs into `%LOCALAPPDATA%\AuraDrop`, with no administrator prompt.
 - **Safety:**
-  - The embedded installer is checked against its SHA-256 before it runs.
-  - Every install is verified afterwards (the files and the registry entry), not just its exit code.
+  - The embedded installer is checked against its SHA-256.
+  - Every install is verified afterwards (files plus registry entry).
   - The window can't be closed mid-install.
-  - Moving to a new folder removes the old copy first.
-- **Dependencies:** the only runtime dependency is Microsoft Edge WebView2, which Windows 11 and current Windows 10 already have. The Visual C++ runtime is built into the exe. If WebView2 is missing, setup can't draw its glass window, so it opens the classic installer instead. That installer downloads WebView2 (needs internet) and then installs AuraDrop.
+  - Moving folders removes the old copy.
+- **Update mode** (`--update`, used by the app's updater): installs in place and keeps the user's shortcut, association and startup choices, then reopens AuraDrop.
+- **No WebView2:** setup falls back to the classic installer, which downloads WebView2 first.
 - **Unattended installs:**
 
   ```powershell
@@ -63,38 +70,31 @@ npm test               # unit tests (design files, code generation, tilt physics
   AuraDrop-Setup.exe --help   # all options; exit codes 0 ok, 1 bad arguments, 2 failed
   ```
 
-On Linux, `npm run installer:build` cross-compiles with `cargo-xwin` and `makensis`. A native Linux build of the installer drives the real Windows installer through Wine, which is how the installer was tested end to end.
-
-## Fonts
-
-Inter (UI and cards) and JetBrains Mono (code) are bundled with both apps, so text looks the same on every PC. The PNG export uses the same Inter, and exported CSS/HTML/Tailwind load Inter from Google Fonts so pasted code matches the preview.
-
 ## Project layout
 
 ```
-src-tauri/
-  tauri.conf.json         frameless transparent window, tray icon, CSP, bundle + file association
-  capabilities/default.json  permissions for window, dialog, fs, clipboard
-  src/lib.rs              Mica/Acrylic, tray, minimize-to-tray, single instance, file commands
 src/
-  App.jsx                 app shell: files, drag & drop, shortcuts, settings, toasts
-  components/             TitleBar, Stage, Inspector (Magic Studio), ExportBar, controls
-  hooks/useTilt.js        rAF spring loop for tilt + glare
-  hooks/useHistory.js     undo/redo with gesture coalescing
-  lib/design.js           design model, presets, .auradrop parsing/validation
-  lib/codegen.js          CSS / HTML / Tailwind generators (also drive the live preview)
-  lib/renderPng.js        canvas renderer for PNG export
-  lib/native.js           Tauri bridge with browser fallbacks
-src-tauri/nsis/           installer hooks (association, autostart) and artwork
-installer/
-  src/Setup.jsx           glass installer UI
-  src-tauri/src/setup.rs  install/uninstall pipeline (shared by UI and --silent)
-  src-tauri/src/system.rs registry, processes, Wine harness
-scripts/build-installer.mjs  builds the payload, then the setup exe
+  App.jsx                     start screen / editor / preview, files, drag & drop, shortcuts
+  player/player.js            renders projects and runs button actions (no imports: it is
+                              inlined into exported web pages)
+  lib/project.js              project model, templates, validation, 0.1 migration
+  lib/renderPng.js            PNG export (canvas renderer)
+  lib/exportHtml.js           self-contained web page export
+  lib/fonts.js                bundled fonts
+  lib/native.js               Tauri bridge (files, links, updates) with browser fallbacks
+  hooks/useEditor.js          editing operations on top of undo/redo history
+  components/editor/          Canvas, LeftPanel (add + layers), Inspector, BottomBar
+  components/                 TitleBar, StartScreen, Preview, UpdateGate, controls
+src-tauri/
+  src/lib.rs                  window material, tray, files, opener, single instance
+  src/update.rs               GitHub release check, verified download, hand-off to setup
+  nsis/hooks.nsh              association / autostart options, update mode
+installer/                    the glass setup app (UI in src/, pipeline in src-tauri/src/)
+.github/workflows/release.yml build, test on Windows and publish a release
 ```
 
 ## Notes
 
-- **PNG export** repaints the card on a canvas, because DOM-capture libraries can't render `backdrop-filter`. It's a static frame (no animation, no tilt).
-- **Exported code** references images as `aura-background.png` / `aura-avatar.png` instead of embedding megabytes of base64.
-- **Phase 2** (not built yet): multi-element layouts, WebM/GIF capture, launch at startup.
+- Projects keep pictures and sounds inside the `.auradrop` file, so one file is all you need to share.
+- Links from a project open only after you confirm, and only `http(s)` and `mailto` links are allowed.
+- Code export (CSS/HTML/Tailwind for a single card) from 0.1 has been replaced by the web page export.

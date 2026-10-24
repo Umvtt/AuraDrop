@@ -166,20 +166,28 @@ export default function Setup() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // Only the latest load may update the screen (a slower, older one must
+  // not reset the page after an install has already started).
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setPage("loading");
     try {
       const i = await api.getInfo();
+      if (seq !== loadSeq.current) return;
       setInfo(i);
       setOptions({
-        dir: i.defaultDir,
+        dir: i.installed?.location ?? i.defaultDir,
         desktopShortcut: true,
         associate: true,
         autostart: i.autostartEnabled,
+        // Started by AuraDrop's update screen: keep every existing choice.
+        update: Boolean(i.autoUpdate && i.installed),
       });
       setDirError("");
       setPage("welcome");
     } catch (err) {
+      if (seq !== loadSeq.current) return;
       setError(toError(err));
       setPage("error");
     }
@@ -224,6 +232,29 @@ export default function Setup() {
     },
     [options],
   );
+
+  // Started by AuraDrop's updater: go straight to installing, then reopen
+  // AuraDrop on its own. (AuraDrop has already closed itself.)
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (info?.autoUpdate && page === "welcome" && !autoStarted.current) {
+      autoStarted.current = true;
+      runJob("install");
+    }
+  }, [info, page, runJob]);
+  useEffect(() => {
+    if (!info?.autoUpdate || page !== "done" || !report) return;
+    const t = setTimeout(async () => {
+      try {
+        await api.launchApp(report.exe);
+      } catch (err) {
+        notify(String(err));
+        return;
+      }
+      api.quit();
+    }, 1400);
+    return () => clearTimeout(t);
+  }, [info, page, report, notify]);
 
   /** Make sure AuraDrop isn't open before touching its files. */
   const start = useCallback(
@@ -473,10 +504,16 @@ export default function Setup() {
                   ✓
                 </span>
                 <div>
-                  <h2 className="font-display text-[20px] font-semibold">AuraDrop is ready!</h2>
-                  <p className="text-[12.5px] text-muted">Version {report.version} is installed and checked.</p>
+                  <h2 className="font-display text-[20px] font-semibold">
+                    {info?.autoUpdate ? "AuraDrop is up to date!" : "AuraDrop is ready!"}
+                  </h2>
+                  <p className="text-[12.5px] text-muted">
+                    {info?.autoUpdate ? `Version ${report.version} is installed. Opening AuraDrop…` : `Version ${report.version} is installed and checked.`}
+                  </p>
                 </div>
               </div>
+              {/* An auto-update keeps the user's choices; listing defaults would mislead. */}
+              {!info?.autoUpdate && (
               <dl className="glass-soft mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-xl p-4 text-[12.5px]">
                 <dt className="text-muted">Installed to</dt>
                 <dd className="truncate font-mono text-[11.5px]" title={report.dir}>{report.dir}</dd>
@@ -489,8 +526,9 @@ export default function Setup() {
                 <dt className="text-muted">Starts with Windows</dt>
                 <dd><Check on={options.autostart} /></dd>
               </dl>
+              )}
               <footer className="mt-auto flex items-center gap-3 pt-4">
-                <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink/90">
+                <label className={`flex cursor-pointer items-center gap-2 text-[12.5px] text-ink/90 ${info?.autoUpdate ? "invisible" : ""}`}>
                   <input type="checkbox" checked={launch} onChange={(e) => setLaunch(e.target.checked)} className="size-4 accent-violet-400" />
                   Open AuraDrop now
                 </label>

@@ -1,6 +1,6 @@
 [package]
 name = "auradrop"
-version = "0.1.0"
+version = "0.2.0"
 description = "AuraDrop – a playful glassmorphic UI builder"
 authors = ["Umvtt"]
 edition = "2021"
@@ -22,6 +22,10 @@ tauri-plugin-single-instance = "2.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
+tauri-plugin-opener = "2.7"
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "stream", "json", "system-proxy", "charset", "http2"] }
+futures-util = { version = "0.3", default-features = false }
+sha2 = "0.10"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 window-vibrancy = "0.8"

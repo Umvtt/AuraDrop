@@ -1,19 +1,21 @@
 // Bridge to the Tauri shell. Every function has a browser fallback so the UI
 // can be developed and tested with plain `npm run dev`.
 
-import { FILE_EXTENSION } from "./design.js";
+import { FILE_EXTENSION } from "./project.js";
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const tauri = isTauri
   ? {
       core: () => import("@tauri-apps/api/core"),
+      app: () => import("@tauri-apps/api/app"),
       window: () => import("@tauri-apps/api/window"),
       webview: () => import("@tauri-apps/api/webview"),
       event: () => import("@tauri-apps/api/event"),
       dialog: () => import("@tauri-apps/plugin-dialog"),
       fs: () => import("@tauri-apps/plugin-fs"),
       clipboard: () => import("@tauri-apps/plugin-clipboard-manager"),
+      opener: () => import("@tauri-apps/plugin-opener"),
     }
   : null;
 
@@ -37,9 +39,6 @@ export const appWindow = {
     if (isTauri) (await tauri.window()).getCurrentWindow().close();
     else window.close();
   },
-  async hideToTray() {
-    if (isTauri) await invoke("hide_to_tray");
-  },
   async isMaximized() {
     return isTauri ? (await tauri.window()).getCurrentWindow().isMaximized() : false;
   },
@@ -56,10 +55,6 @@ export async function setBackdrop(kind) {
   return isTauri ? invoke("set_backdrop", { kind }) : "none";
 }
 
-export async function getPrefs() {
-  return isTauri ? invoke("get_prefs") : { minimizeToTray: false };
-}
-
 export async function setMinimizeToTray(enabled) {
   if (isTauri) await invoke("set_minimize_to_tray", { enabled });
 }
@@ -74,6 +69,10 @@ export async function takeLaunchFile() {
   return isTauri ? invoke("take_launch_file") : null;
 }
 
+export async function appVersion() {
+  return isTauri ? (await tauri.app()).getVersion() : "dev";
+}
+
 /** Yes/no question. Uses the native Windows dialog inside Tauri. */
 export async function ask(message, { title = "AuraDrop", okLabel = "Yes", cancelLabel = "Cancel" } = {}) {
   if (isTauri) {
@@ -81,6 +80,53 @@ export async function ask(message, { title = "AuraDrop", okLabel = "Yes", cancel
     return ask(message, { title, kind: "warning", okLabel, cancelLabel });
   }
   return window.confirm(message);
+}
+
+/** Open a web/mail link in the user's browser. */
+export async function openUrl(url) {
+  if (isTauri) return (await tauri.opener()).openUrl(url);
+  window.open(url, "_blank", "noopener");
+}
+
+// ---------------------------------------------------------------------------
+// Updates
+// ---------------------------------------------------------------------------
+
+/** Newer release info, or null when up to date / offline. */
+export async function checkUpdate() {
+  if (!isTauri) {
+    const v = new URLSearchParams(location.search).get("mockUpdate");
+    return v
+      ? { version: v, current: "0.2.0", notes: "• New stickers\n• Faster export", pageUrl: "https://github.com/Umvtt/AuraDrop/releases", downloadUrl: "", size: 6_000_000, sha256: null }
+      : null;
+  }
+  try {
+    return await invoke("check_update");
+  } catch {
+    return null;
+  }
+}
+
+export async function installUpdate(info) {
+  if (!isTauri) {
+    // Browser mock: fake a download so the screen can be tested.
+    for (let i = 1; i <= 10; i++) {
+      await new Promise((r) => setTimeout(r, 80));
+      window.dispatchEvent(new CustomEvent("mock-update-progress", { detail: { downloaded: (info.size * i) / 10, total: info.size } }));
+    }
+    if (new URLSearchParams(location.search).get("mockUpdateFail")) throw "The download was interrupted: connection reset";
+    return;
+  }
+  return invoke("install_update", { info });
+}
+
+export async function onUpdateProgress(cb) {
+  if (!isTauri) {
+    const h = (e) => cb(e.detail);
+    window.addEventListener("mock-update-progress", h);
+    return () => window.removeEventListener("mock-update-progress", h);
+  }
+  return listen("update-progress", cb);
 }
 
 // ---------------------------------------------------------------------------
@@ -99,90 +145,76 @@ export async function copyText(text) {
 // Files
 // ---------------------------------------------------------------------------
 
-const DESIGN_FILTER = { name: "AuraDrop design", extensions: [FILE_EXTENSION] };
-const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "avif"];
+const PROJECT_FILTER = { name: "AuraDrop project", extensions: [FILE_EXTENSION] };
+export const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "avif"];
+export const AUDIO_EXTENSIONS = ["mp3", "wav", "ogg", "oga", "m4a", "aac", "flac", "weba"];
 
-/** Ask for a save location and write text. Returns the path (or name) or null if cancelled. */
-export async function saveDesignAs(text, suggestedName) {
+const extOf = (path) => path.split(".").pop()?.toLowerCase() ?? "";
+export const isImagePath = (path) => IMAGE_EXTENSIONS.includes(extOf(path));
+export const isAudioPath = (path) => AUDIO_EXTENSIONS.includes(extOf(path));
+export const isProjectPath = (path) => extOf(path) === FILE_EXTENSION;
+
+/** Save text/bytes through a Save dialog. Returns the path (or name), or null if cancelled. */
+async function saveWithDialog(data, suggestedName, filter, mime) {
   if (isTauri) {
     const { save } = await tauri.dialog();
-    const path = await save({ defaultPath: suggestedName, filters: [DESIGN_FILTER] });
+    const path = await save({ defaultPath: suggestedName, filters: [filter] });
     if (!path) return null;
-    const { writeTextFile } = await tauri.fs();
-    await writeTextFile(path, text);
+    const fs = await tauri.fs();
+    if (typeof data === "string") await fs.writeTextFile(path, data);
+    else await fs.writeFile(path, data);
     return path;
   }
-  download(new Blob([text], { type: "application/json" }), suggestedName);
+  download(new Blob([data], { type: mime }), suggestedName);
   return suggestedName;
 }
 
-/** Overwrite a file that was opened or saved earlier (path came from a dialog). */
-export async function saveDesignTo(path, text) {
+export const saveProjectAs = (text, name) => saveWithDialog(text, name, PROJECT_FILTER, "application/json");
+export const savePng = (bytes, name) => saveWithDialog(bytes, name, { name: "PNG image", extensions: ["png"] }, "image/png");
+export const saveWebPage = (html, name) => saveWithDialog(html, name, { name: "Web page", extensions: ["html"] }, "text/html");
+
+/** Overwrite a file that was opened or saved earlier. */
+export async function saveProjectTo(path, text) {
   const { writeTextFile } = await tauri.fs();
   await writeTextFile(path, text);
 }
 
-/** Returns { path, text } or null if cancelled. */
-export async function openDesign() {
+/** Returns { path, name, text } or null if cancelled. */
+export async function openProject() {
   if (isTauri) {
     const { open } = await tauri.dialog();
-    const path = await open({ multiple: false, directory: false, filters: [DESIGN_FILTER] });
+    const path = await open({ multiple: false, directory: false, filters: [PROJECT_FILTER] });
     if (!path) return null;
     const { readTextFile } = await tauri.fs();
-    return { path, text: await readTextFile(path) };
+    return { path, name: baseName(path), text: await readTextFile(path) };
   }
   const file = await pickFile(`.${FILE_EXTENSION},application/json`);
   return file ? { path: null, name: file.name, text: await file.text() } : null;
 }
 
-/** Read a design whose path came from the OS (file association / drop). */
-export async function readDesignPath(path) {
+/** Read a project whose path came from the OS (file association / drop). */
+export async function readProjectPath(path) {
   return invoke("read_design_file", { path });
 }
 
-/** Pick an image and return it as a data URL, or null if cancelled. */
-export async function pickImage() {
+/** Pick a picture or sound; returns { data, name } or null if cancelled. */
+export async function pickMedia(kind) {
+  const exts = kind === "audio" ? AUDIO_EXTENSIONS : IMAGE_EXTENSIONS;
   if (isTauri) {
     const { open } = await tauri.dialog();
     const path = await open({
       multiple: false,
       directory: false,
-      filters: [{ name: "Images", extensions: IMAGE_EXTENSIONS }],
+      filters: [{ name: kind === "audio" ? "Sounds" : "Pictures", extensions: exts }],
     });
-    return path ? readImagePath(path) : null;
+    return path ? { data: await readMediaPath(path), name: baseName(path) } : null;
   }
-  const file = await pickFile("image/*");
-  return file ? fileToDataUrl(file) : null;
+  const file = await pickFile(kind === "audio" ? "audio/*" : "image/*");
+  return file ? { data: await fileToDataUrl(file), name: file.name } : null;
 }
 
-export async function readImagePath(path) {
-  return invoke("read_image_file", { path });
-}
-
-export function isImagePath(path) {
-  const ext = path.split(".").pop()?.toLowerCase();
-  return IMAGE_EXTENSIONS.includes(ext);
-}
-
-export function isDesignPath(path) {
-  return path.toLowerCase().endsWith(`.${FILE_EXTENSION}`);
-}
-
-/** Save PNG bytes. Returns the path (or name) or null if cancelled. */
-export async function savePng(bytes, suggestedName) {
-  if (isTauri) {
-    const { save } = await tauri.dialog();
-    const path = await save({
-      defaultPath: suggestedName,
-      filters: [{ name: "PNG image", extensions: ["png"] }],
-    });
-    if (!path) return null;
-    const { writeFile } = await tauri.fs();
-    await writeFile(path, bytes);
-    return path;
-  }
-  download(new Blob([bytes], { type: "image/png" }), suggestedName);
-  return suggestedName;
+export async function readMediaPath(path) {
+  return invoke("read_media_file", { path });
 }
 
 /**

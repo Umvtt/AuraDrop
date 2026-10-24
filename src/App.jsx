@@ -1,21 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExportBar } from "./components/ExportBar.jsx";
-import { Inspector } from "./components/Inspector.jsx";
-import { Stage } from "./components/Stage.jsx";
+import { BottomBar } from "./components/editor/BottomBar.jsx";
+import { Canvas } from "./components/editor/Canvas.jsx";
+import { Inspector } from "./components/editor/Inspector.jsx";
+import { LeftPanel } from "./components/editor/LeftPanel.jsx";
+import { Preview } from "./components/Preview.jsx";
+import { StartScreen } from "./components/StartScreen.jsx";
 import { TitleBar } from "./components/TitleBar.jsx";
-import { useHistory } from "./hooks/useHistory.js";
-import {
-  applyStarterLook,
-  createDefaultDesign,
-  FILE_EXTENSION,
-  parseDesignFile,
-  randomDesign,
-  serializeDesign,
-} from "./lib/design.js";
+import { UpdateGate } from "./components/UpdateGate.jsx";
+import { useEditor } from "./hooks/useEditor.js";
+import { buildWebPage } from "./lib/exportHtml.js";
 import * as native from "./lib/native.js";
+import {
+  createElement,
+  createProject,
+  duplicateElement,
+  FILE_EXTENSION,
+  makeFromTemplate,
+  parseProjectFile,
+  serializeProject,
+} from "./lib/project.js";
 import { renderPng } from "./lib/renderPng.js";
 
-const UNTITLED = `Untitled.${FILE_EXTENSION}`;
+const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 
 function readPref(key, fallback) {
   try {
@@ -34,25 +40,41 @@ function writePref(key, value) {
   }
 }
 
+const safeFileName = (name) => (name || "Untitled").replace(/[\\/:*?"<>|]+/g, "-").trim() || "Untitled";
+
+/** Natural size of an image data URL (falls back to a square). */
+function imageSize(data) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
+    img.onerror = () => resolve({ w: 1, h: 1 });
+    img.src = data;
+  });
+}
+
 export default function App() {
-  const history = useHistory(createDefaultDesign());
-  const { design, set, reset, undo, redo } = history;
+  const editor = useEditor(createProject());
+  const { project, page, pageIndex, selected, selectedId } = editor;
+  const [mode, setMode] = useState("start"); // start | edit | preview
+  const [previewPage, setPreviewPage] = useState(0);
+  const [animate, setAnimate] = useState(false);
+  const canvasRef = useRef(null);
+  const clipboard = useRef(null);
 
   // --- file state ----------------------------------------------------------
-  const [file, setFile] = useState({ path: null, name: UNTITLED });
-  const savedRef = useRef(design);
-  const dirty = design !== savedRef.current;
+  const [file, setFile] = useState({ path: null, name: null });
+  const savedRef = useRef(project);
+  const dirty = mode !== "start" && project !== savedRef.current;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  const fileName = file.name ?? `${safeFileName(project.name)}.${FILE_EXTENSION}`;
 
   // --- toasts --------------------------------------------------------------
   const [toast, setToast] = useState(null);
-  const notify = useCallback((message, tone = "info") => {
-    setToast({ message, tone, key: Date.now() });
-  }, []);
+  const notify = useCallback((message, tone = "info") => setToast({ message, tone, key: Date.now() }), []);
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2600);
+    const t = setTimeout(() => setToast(null), 2800);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -60,189 +82,328 @@ export default function App() {
   const [backdrop, setBackdropPref] = useState(() => readPref("backdrop", "mica"));
   const [backdropApplied, setBackdropApplied] = useState(native.isTauri ? backdrop : "none");
   const [minimizeToTray, setMinimizeToTrayState] = useState(() => readPref("minimizeToTray", true));
-
   useEffect(() => {
     native.setBackdrop(backdrop).then(setBackdropApplied);
     writePref("backdrop", backdrop);
   }, [backdrop]);
-
   useEffect(() => {
     document.documentElement.dataset.backdrop = backdropApplied;
   }, [backdropApplied]);
-
   useEffect(() => {
     native.setMinimizeToTray(minimizeToTray);
     writePref("minimizeToTray", minimizeToTray);
   }, [minimizeToTray]);
-
   useEffect(() => {
-    // The tray menu can flip this too.
     const off = native.listen("prefs-changed", (p) => setMinimizeToTrayState(p.minimizeToTray));
     return () => void off.then((f) => f());
   }, []);
 
-  // --- file actions --------------------------------------------------------
+  // --- updates -------------------------------------------------------------
+  const [update, setUpdate] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const check = () => native.checkUpdate().then((u) => alive && u && setUpdate(u));
+    check();
+    const t = setInterval(check, UPDATE_CHECK_MS);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  // --- files -----------------------------------------------------------------
   const confirmDiscard = useCallback(async () => {
     if (!dirtyRef.current) return true;
     return native.ask("You have unsaved changes. Throw them away?", { okLabel: "Discard", cancelLabel: "Keep editing" });
   }, []);
 
-  const loadDesignText = useCallback(
+  /** Load a project; files from disk open in Preview first. */
+  const loadProject = useCallback(
+    (p, { path = null, name = null, preview = true } = {}) => {
+      editor.load(p);
+      savedRef.current = p;
+      setFile({ path, name });
+      setPreviewPage(0);
+      setMode(preview ? "preview" : "edit");
+    },
+    [editor],
+  );
+
+  const openText = useCallback(
     (text, path, name) => {
       try {
-        const loaded = parseDesignFile(text);
-        reset(loaded);
-        savedRef.current = loaded;
-        setFile({ path, name: name ?? native.baseName(path) ?? UNTITLED });
-        notify(`Opened ${name ?? native.baseName(path)}`);
+        loadProject(parseProjectFile(text), { path, name: name ?? native.baseName(path) });
       } catch (err) {
         notify(err.message, "error");
       }
     },
-    [reset, notify],
+    [loadProject, notify],
   );
 
-  const newDesign = useCallback(async () => {
-    if (!(await confirmDiscard())) return;
-    const fresh = createDefaultDesign();
-    reset(fresh);
-    savedRef.current = fresh;
-    setFile({ path: null, name: UNTITLED });
-  }, [confirmDiscard, reset]);
-
-  const openDesign = useCallback(async () => {
+  const openDialog = useCallback(async () => {
     if (!(await confirmDiscard())) return;
     try {
-      const result = await native.openDesign();
-      if (result) loadDesignText(result.text, result.path, result.name);
+      const r = await native.openProject();
+      if (r) openText(r.text, r.path, r.name);
     } catch (err) {
       notify(`Couldn't open the file: ${err.message ?? err}`, "error");
     }
-  }, [confirmDiscard, loadDesignText, notify]);
+  }, [confirmDiscard, openText, notify]);
 
-  const openDesignPath = useCallback(
+  const openPath = useCallback(
     async (path) => {
       if (!(await confirmDiscard())) return;
       try {
-        loadDesignText(await native.readDesignPath(path), path);
+        openText(await native.readProjectPath(path), path);
       } catch (err) {
         notify(`Couldn't open the file: ${err.message ?? err}`, "error");
       }
     },
-    [confirmDiscard, loadDesignText, notify],
+    [confirmDiscard, openText, notify],
   );
 
-  const saveDesign = useCallback(
+  const newProject = useCallback(async () => {
+    if (!(await confirmDiscard())) return;
+    setMode("start");
+  }, [confirmDiscard]);
+
+  const createFromTemplate = useCallback(
+    (templateId, presetId) => {
+      const p = makeFromTemplate(templateId, presetId);
+      loadProject(p, { preview: false });
+      setFile({ path: null, name: null });
+    },
+    [loadProject],
+  );
+
+  const save = useCallback(
     async ({ saveAs = false } = {}) => {
-      const snapshot = design;
-      const text = serializeDesign(snapshot);
+      const snapshot = project;
+      const text = serializeProject(snapshot);
       try {
         let path = file.path;
-        if (path && !saveAs) {
-          await native.saveDesignTo(path, text);
-        } else {
-          path = await native.saveDesignAs(text, file.name);
+        if (path && !saveAs) await native.saveProjectTo(path, text);
+        else {
+          path = await native.saveProjectAs(text, fileName);
           if (!path) return;
         }
         savedRef.current = snapshot;
-        // In the browser fallback there is no real path to overwrite later.
         setFile({ path: native.isTauri ? path : null, name: native.baseName(path) });
         notify(`Saved ${native.baseName(path)}`, "success");
       } catch (err) {
         notify(`Couldn't save: ${err.message ?? err}`, "error");
       }
     },
-    [design, file, notify],
+    [project, file.path, fileName, notify],
   );
 
-  const [exporting, setExporting] = useState(false);
-  const exportPng = useCallback(
-    async (scene) => {
-      setExporting(true);
-      try {
-        const bytes = await renderPng(design, { scene, scale: 2 });
-        const base = file.name.replace(new RegExp(`\\.${FILE_EXTENSION}$`), "");
-        const path = await native.savePng(bytes, `${base}.png`);
-        if (path) notify(`Exported ${native.baseName(path)}`, "success");
-      } catch (err) {
-        notify(`Couldn't export the PNG: ${err.message ?? err}`, "error");
-      } finally {
-        setExporting(false);
-      }
+  const [busy, setBusy] = useState(null);
+  const exportPng = useCallback(async () => {
+    setBusy("png");
+    try {
+      const bytes = await renderPng(project, pageIndex);
+      const suffix = project.pages.length > 1 ? `-page${pageIndex + 1}` : "";
+      const path = await native.savePng(bytes, `${safeFileName(project.name)}${suffix}.png`);
+      if (path) notify(`Exported ${native.baseName(path)}`, "success");
+    } catch (err) {
+      notify(`Couldn't export the PNG: ${err.message ?? err}`, "error");
+    } finally {
+      setBusy(null);
+    }
+  }, [project, pageIndex, notify]);
+
+  const exportHtml = useCallback(async () => {
+    setBusy("html");
+    try {
+      const html = await buildWebPage(project);
+      const path = await native.saveWebPage(html, `${safeFileName(project.name)}.html`);
+      if (path) notify(`Exported ${native.baseName(path)} – open it in any browser`, "success");
+    } catch (err) {
+      notify(`Couldn't export the web page: ${err.message ?? err}`, "error");
+    } finally {
+      setBusy(null);
+    }
+  }, [project, notify]);
+
+  // --- adding things ------------------------------------------------------------
+
+  /** Add a picture as a new layer, sized to fit and centred on `at`. */
+  const addPicture = useCallback(
+    async (data, name, at) => {
+      const { w: iw, h: ih } = await imageSize(data);
+      const c = project.canvas;
+      const k = Math.min((c.w * 0.6) / iw, (c.h * 0.6) / ih, 1);
+      const w = Math.max(40, Math.round(iw * k));
+      const h = Math.max(40, Math.round(ih * k));
+      const cx = at?.x ?? c.w / 2;
+      const cy = at?.y ?? c.h / 2;
+      let created;
+      editor.withAsset("image", data, name, (p, id) => {
+        created = createElement("image", p.canvas, { asset: id, w, h, x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), name: name || "Picture" });
+        return editor.pageUpdater((pg) => ({ ...pg, elements: [...pg.elements, created] }))(p);
+      });
+      editor.select(created.id);
     },
-    [design, file.name, notify],
+    [editor, project.canvas],
   );
 
-  const copyCode = useCallback(
-    async (code, label) => {
+  const setPicture = useCallback(
+    (elId, data, name) =>
+      editor.withAsset("image", data, name, (p, id) =>
+        editor.pageUpdater((pg) => ({ ...pg, elements: pg.elements.map((e) => (e.id === elId ? { ...e, asset: id } : e)) }))(p),
+      ),
+    [editor],
+  );
+
+  const attachSound = useCallback(
+    (elId, actionIndex, data, name) =>
+      editor.withAsset("audio", data, name, (p, id) =>
+        editor.pageUpdater((pg) => ({
+          ...pg,
+          elements: pg.elements.map((e) => {
+            if (e.id !== elId) return e;
+            const actions = [...e.actions];
+            if (actionIndex != null && actions[actionIndex]?.type === "sound") actions[actionIndex] = { ...actions[actionIndex], asset: id };
+            else actions.push({ type: "sound", asset: id, volume: 1, stopOthers: true });
+            return { ...e, actions };
+          }),
+        }))(p),
+      ),
+    [editor],
+  );
+
+  const addSoundButton = useCallback(
+    (data, name, at) => {
+      let created;
+      editor.withAsset("audio", data, name, (p, id) => {
+        const label = (name || "Sound").replace(/\.[^.]+$/, "").slice(0, 24);
+        created = createElement("button", p.canvas, { label, icon: "🔊", actions: [{ type: "sound", asset: id, volume: 1, stopOthers: true }] });
+        if (at) {
+          created.x = Math.round(at.x - created.w / 2);
+          created.y = Math.round(at.y - created.h / 2);
+        }
+        return editor.pageUpdater((pg) => ({ ...pg, elements: [...pg.elements, created] }))(p);
+      });
+      editor.select(created.id);
+    },
+    [editor],
+  );
+
+  const pick = useCallback(
+    async (kind) => {
       try {
-        await native.copyText(code);
-        notify(`${label} copied to your clipboard`, "success");
-        return true;
+        return await native.pickMedia(kind);
       } catch (err) {
-        notify(`Couldn't copy: ${err.message ?? err}`, "error");
-        return false;
+        notify(String(err.message ?? err), "error");
+        return null;
       }
     },
     [notify],
   );
 
-  // --- images --------------------------------------------------------------
-  const setImage = useCallback(
-    (slot, dataUrl) => set((d) => ({ ...d, content: { ...d.content, [slot]: dataUrl } })),
-    [set],
-  );
-
-  const pickImage = useCallback(
-    async (slot) => {
-      try {
-        const dataUrl = await native.pickImage();
-        if (dataUrl) setImage(slot, dataUrl);
-      } catch (err) {
-        notify(String(err.message ?? err), "error");
+  const onAdd = useCallback(
+    async (what) => {
+      const c = project.canvas;
+      switch (what) {
+        case "text":
+          editor.addElement("text");
+          break;
+        case "meme":
+          editor.addElement("text", {
+            text: "Top text",
+            font: "Impact",
+            weight: 400,
+            upper: true,
+            size: Math.round(c.w / 10),
+            stroke: { width: Math.max(4, Math.round(c.w / 160)), color: "#000000" },
+            shadow: { on: false },
+            name: "Meme text",
+          });
+          break;
+        case "image": {
+          const m = await pick("image");
+          if (m) await addPicture(m.data, m.name);
+          break;
+        }
+        case "sound": {
+          const m = await pick("audio");
+          if (m) addSoundButton(m.data, m.name);
+          break;
+        }
+        case "button":
+        case "glass":
+          editor.addElement(what);
+          break;
+        default: {
+          const names = { rect: "Box", ellipse: "Circle", triangle: "Triangle", star: "Star", heart: "Heart", bubble: "Speech bubble", arrow: "Arrow" };
+          editor.addElement("shape", { shape: what, name: names[what] ?? "Shape" });
+        }
       }
     },
-    [setImage, notify],
+    [editor, project.canvas, pick, addPicture, addSoundButton],
   );
 
-  // --- drag & drop ---------------------------------------------------------
+  // --- drag & drop ------------------------------------------------------------
   const [dropTarget, setDropTarget] = useState(null);
-  const targetAt = (x, y) => {
-    const el = document.elementFromPoint(x, y)?.closest("[data-drop]");
-    return el?.dataset.drop === "avatar" ? "avatar" : "background";
+  const handlersRef = useRef();
+  handlersRef.current = { mode, openPath, addPicture, setPicture, addSoundButton, attachSound, selectedId, notify, createFromTemplate };
+
+  const describeDrop = (x, y, kind) => {
+    const c = canvasRef.current;
+    if (!c) return null;
+    const el = c.elementAt(x, y);
+    if (kind === "image" && el?.type === "image") return { el, label: "Drop to replace this picture" };
+    if (kind === "audio" && el) return { el, label: "Drop to make this play the sound" };
+    if (kind === "project") return { el: null, label: "Drop to open this project" };
+    return { el: null, label: kind === "audio" ? "Drop to add a sound button" : "Drop to add the picture" };
   };
 
-  const handlersRef = useRef();
-  handlersRef.current = { openDesignPath, setImage, notify };
+  const handleDrop = useCallback(async (item, x, y) => {
+    const h = handlersRef.current;
+    if (item.kind === "project") return item.path ? h.openPath(item.path) : null;
+    if (h.mode === "preview") return h.notify("Switch to ✏️ Edit to add pictures and sounds.");
+    if (h.mode === "start") h.createFromTemplate("blank");
+    const c = canvasRef.current;
+    const el = c?.elementAt(x, y) ?? null;
+    const at = c?.isOverCanvas(x, y) ? c.toCanvas(x, y) : null;
+    try {
+      const data = await item.read();
+      if (item.kind === "image") {
+        if (el?.type === "image") h.setPicture(el.id, data, item.name);
+        else await h.addPicture(data, item.name, at);
+      } else if (item.kind === "audio") {
+        if (el) h.attachSound(el.id, null, data, item.name);
+        else h.addSoundButton(data, item.name, at);
+      }
+    } catch (err) {
+      h.notify(String(err.message ?? err), "error");
+    }
+  }, []);
 
   useEffect(() => {
-    // Native OS drops (Tauri intercepts these before the webview sees them).
+    const kindOf = (path) => (native.isProjectPath(path) ? "project" : native.isImagePath(path) ? "image" : native.isAudioPath(path) ? "audio" : null);
     const off = native.onNativeDragDrop({
-      over: (x, y) => setDropTarget(targetAt(x, y)),
+      over: () => setDropTarget((d) => d ?? { el: null, label: "Drop it!" }),
       leave: () => setDropTarget(null),
-      drop: async (paths, x, y) => {
+      drop: (paths, x, y) => {
         setDropTarget(null);
-        const { openDesignPath, setImage, notify } = handlersRef.current;
-        const designPath = paths.find(native.isDesignPath);
-        if (designPath) return openDesignPath(designPath);
-        const imagePath = paths.find(native.isImagePath);
-        if (!imagePath) return notify("Drop a picture (PNG, JPG, WebP, GIF, SVG) or an .auradrop file.", "error");
-        try {
-          setImage(targetAt(x, y), await native.readImagePath(imagePath));
-        } catch (err) {
-          notify(String(err.message ?? err), "error");
-        }
+        const path = paths.find(kindOf);
+        if (!path) return handlersRef.current.notify("Drop a picture, a sound or an .auradrop file.", "error");
+        const kind = kindOf(path);
+        handleDrop({ kind, path, name: native.baseName(path), read: () => native.readMediaPath(path) }, x, y);
       },
     });
     return () => void off.then((f) => f());
-  }, []);
+  }, [handleDrop]);
 
   useEffect(() => {
     if (native.isTauri) return;
     // Browser fallback for development.
+    const kindOfFile = (f) => (f.name.endsWith(`.${FILE_EXTENSION}`) ? "project" : f.type.startsWith("image/") ? "image" : f.type.startsWith("audio/") ? "audio" : null);
     const over = (e) => {
       e.preventDefault();
-      setDropTarget(targetAt(e.clientX, e.clientY));
+      const kind = [...(e.dataTransfer.items ?? [])].some((i) => i.type.startsWith("audio/")) ? "audio" : "image";
+      setDropTarget(describeDrop(e.clientX, e.clientY, kind));
     };
     const leave = (e) => !e.relatedTarget && setDropTarget(null);
     const drop = async (e) => {
@@ -250,9 +411,10 @@ export default function App() {
       setDropTarget(null);
       const f = e.dataTransfer.files[0];
       if (!f) return;
-      const { setImage, notify } = handlersRef.current;
-      if (!f.type.startsWith("image/")) return notify("Drop a picture file.", "error");
-      setImage(targetAt(e.clientX, e.clientY), await native.fileToDataUrl(f));
+      const kind = kindOfFile(f);
+      if (kind === "project") return handlersRef.current.notify("Use 📂 Open for project files in the browser.");
+      if (!kind) return handlersRef.current.notify("Drop a picture or a sound.", "error");
+      handleDrop({ kind, name: f.name, read: () => native.fileToDataUrl(f) }, e.clientX, e.clientY);
     };
     window.addEventListener("dragover", over);
     window.addEventListener("dragleave", leave);
@@ -262,53 +424,88 @@ export default function App() {
       window.removeEventListener("dragleave", leave);
       window.removeEventListener("drop", drop);
     };
-  }, []);
+  }, [handleDrop]);
 
-  // --- launch file / second instance --------------------------------------
+  // --- launch file / second instance ----------------------------------------
   useEffect(() => {
-    native.takeLaunchFile().then((path) => path && handlersRef.current.openDesignPath(path));
-    const off = native.listen("open-design-file", (path) => handlersRef.current.openDesignPath(path));
+    native.takeLaunchFile().then((path) => path && handlersRef.current.openPath(path));
+    const off = native.listen("open-design-file", (path) => handlersRef.current.openPath(path));
     return () => void off.then((f) => f());
   }, []);
 
-  // --- keyboard shortcuts --------------------------------------------------
+  // --- keyboard -----------------------------------------------------------------
+  const keyRef = useRef();
+  keyRef.current = { mode, save, openDialog, newProject, editor, selected, project, previewPage, pageIndex, notify };
   useEffect(() => {
     const onKey = (e) => {
-      if (!e.ctrlKey && !e.metaKey) return;
-      const typing = e.target.closest?.("input[type=text], input:not([type]), textarea");
-      const k = e.key.toLowerCase();
+      const k = keyRef.current;
+      const typing = e.target.closest?.("input, textarea, select, [contenteditable=true]");
+      const key = e.key.toLowerCase();
       const run = (fn) => {
         e.preventDefault();
         fn();
       };
-      if (k === "s") run(() => saveDesign({ saveAs: e.shiftKey }));
-      else if (k === "o") run(openDesign);
-      else if (k === "n") run(newDesign);
-      else if (typing) return; // let text fields keep their own undo
-      else if (k === "z" && !e.shiftKey) run(undo);
-      else if (k === "y" || (k === "z" && e.shiftKey)) run(redo);
+      if (e.key === "F5" && k.mode !== "start") return run(() => setMode((m) => (m === "edit" ? "preview" : "edit")));
+      if (e.ctrlKey || e.metaKey) {
+        if (key === "s" && k.mode !== "start") return run(() => k.save({ saveAs: e.shiftKey }));
+        if (key === "o") return run(k.openDialog);
+        if (key === "n") return run(k.newProject);
+      }
+      if (k.mode !== "edit" || typing) return;
+      const sel = k.selected;
+      if (e.ctrlKey || e.metaKey) {
+        if (key === "z" && !e.shiftKey) return run(k.editor.undo);
+        if (key === "y" || (key === "z" && e.shiftKey)) return run(k.editor.redo);
+        if (key === "d" && sel) return run(() => k.editor.duplicateElement(sel.id));
+        if (key === "c" && sel) return run(() => (clipboard.current = structuredClone(sel)));
+        if (key === "v" && clipboard.current) return run(() => k.editor.insertElement(duplicateElement(clipboard.current, 24)));
+        return;
+      }
+      if (!sel) return;
+      if (e.key === "Delete" || e.key === "Backspace") return run(() => k.editor.removeElement(sel.id));
+      if (e.key === "Escape") return run(() => k.editor.select(null));
+      if (e.key === "]") return run(() => k.editor.moveLayer(sel.id, 1));
+      if (e.key === "[") return run(() => k.editor.moveLayer(sel.id, -1));
+      const step = e.shiftKey ? 10 : 1;
+      const nudge = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+      if (nudge && !sel.locked) run(() => k.editor.updateElement(sel.id, { x: sel.x + nudge[0], y: sel.y + nudge[1] }));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [saveDesign, openDesign, newDesign, undo, redo]);
+  }, []);
 
   const closeWindow = useCallback(async () => {
     if (await confirmDiscard()) native.appWindow.close();
   }, [confirmDiscard]);
 
+  const commitText = useCallback(
+    (el, value) => {
+      if (el.type === "text") editor.updateElement(el.id, { text: value });
+      else if (el.type === "button") editor.updateElement(el.id, { label: value });
+      else if (el.type === "sticker" && value.trim()) editor.updateElement(el.id, { emoji: value.trim().slice(0, 16) });
+    },
+    [editor],
+  );
+
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <TitleBar
-        fileName={file.name}
+        mode={mode}
+        fileName={mode === "start" ? "" : fileName}
         dirty={dirty}
-        canUndo={history.canUndo}
-        canRedo={history.canRedo}
-        onUndo={undo}
-        onRedo={redo}
-        onNew={newDesign}
-        onOpen={openDesign}
-        onSave={() => saveDesign()}
+        canUndo={editor.canUndo}
+        canRedo={editor.canRedo}
+        onUndo={editor.undo}
+        onRedo={editor.redo}
+        onNew={newProject}
+        onOpen={openDialog}
+        onSave={() => save()}
         onClose={closeWindow}
+        onPreview={() => {
+          setPreviewPage(pageIndex);
+          setMode("preview");
+        }}
+        onEdit={() => setMode("edit")}
         settings={{
           backdrop,
           backdropApplied,
@@ -318,21 +515,97 @@ export default function App() {
         }}
       />
 
-      <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
-        <main className="@container flex min-w-0 flex-1 flex-col gap-2">
-          <Stage
-            design={design}
-            dropTarget={dropTarget}
-            onStarterLook={(look) => set((d) => applyStarterLook(d, look))}
-            onSurprise={() => set((d) => randomDesign(d))}
-            onReset={() => set((d) => ({ ...createDefaultDesign(), content: d.content }))}
+      {mode === "start" && <StartScreen onCreate={createFromTemplate} onOpen={openDialog} onClose={dirty || project.pages[0].elements.length ? () => setMode("edit") : null} />}
+
+      {mode === "preview" && (
+        <Preview
+          project={project}
+          startPage={previewPage}
+          onPageChange={setPreviewPage}
+          onEdit={(i) => {
+            editor.goToPage(i);
+            setMode("edit");
+          }}
+        />
+      )}
+
+      {mode === "edit" && (
+        <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
+          <LeftPanel
+            project={project}
+            page={page}
+            selectedId={selectedId}
+            onAdd={onAdd}
+            onAddSticker={(emoji) => editor.addElement("sticker", { emoji, name: `Sticker ${emoji}` })}
+            onSelect={editor.select}
+            onToggle={(id, key) => editor.updateElement(id, (e) => ({ ...e, [key]: !e[key] }))}
+            onMove={editor.moveLayer}
+            onRename={(id, name) => editor.updateElement(id, { name })}
           />
-          <ExportBar design={design} onCopy={copyCode} onExportPng={exportPng} exporting={exporting} />
-        </main>
-        <div className="glass-chrome flex min-h-0 rounded-2xl">
-          <Inspector design={design} set={set} onPickImage={pickImage} />
+          <main className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="glass-chrome relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl">
+              <Canvas
+                ref={canvasRef}
+                project={project}
+                pageIndex={pageIndex}
+                selectedId={selectedId}
+                onSelect={editor.select}
+                onChange={(id, patch) => editor.updateElement(id, patch)}
+                onCommitText={commitText}
+                animate={animate}
+                dropTarget={dropTarget}
+              />
+              <button
+                type="button"
+                onClick={() => setAnimate((a) => !a)}
+                aria-pressed={animate}
+                title="Play animations while editing"
+                className={`press focus-ring absolute top-3 right-3 rounded-xl px-3 py-1.5 text-[11.5px] font-medium ${animate ? "bg-accent/25 text-white" : "glass-chrome text-muted hover:text-ink"}`}
+              >
+                {animate ? "⏸ Animations on" : "▶ Animations off"}
+              </button>
+            </div>
+            <BottomBar
+              project={project}
+              pageIndex={pageIndex}
+              onGoTo={editor.goToPage}
+              onAddPage={editor.addPage}
+              onDuplicatePage={editor.duplicatePage}
+              onRemovePage={editor.removePage}
+              onMovePage={editor.movePage}
+              onSave={() => save()}
+              onExportPng={exportPng}
+              onExportHtml={exportHtml}
+              busy={busy}
+            />
+          </main>
+          <Inspector
+            project={project}
+            page={page}
+            pageIndex={pageIndex}
+            selected={selected}
+            update={editor.updateElement}
+            remove={editor.removeElement}
+            duplicate={editor.duplicateElement}
+            updatePage={editor.updatePage}
+            setProject={editor.setProject}
+            chooseImage={async (elId) => {
+              const m = await pick("image");
+              if (m) setPicture(elId, m.data, m.name);
+            }}
+            chooseSound={async (elId, i) => {
+              const m = await pick("audio");
+              if (m) attachSound(elId, i, m.data, m.name);
+            }}
+            chooseBackground={async () => {
+              const m = await pick("image");
+              if (m) editor.withAsset("image", m.data, m.name, (p, id) => editor.pageUpdater((pg) => ({ ...pg, bg: { ...pg.bg, type: "image", asset: id } }))(p));
+            }}
+          />
         </div>
-      </div>
+      )}
+
+      {update && <UpdateGate info={update} />}
 
       {toast && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center">

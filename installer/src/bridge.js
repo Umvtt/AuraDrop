@@ -63,10 +63,11 @@ const mock = {
     await wait(150);
     const installed =
       scenario === "installed" ? { version: "0.1.0", location: "C:\\Users\\Kid\\AppData\\Local\\AuraDrop" }
+      : scenario === "autoupdate" ? { version: "0.1.0", location: "D:\\Apps\\AuraDrop" }
       : scenario === "update" ? { version: "0.0.9", location: "D:\\Apps\\AuraDrop" }
       : scenario === "downgrade" ? { version: "0.2.0", location: "C:\\Users\\Kid\\AppData\\Local\\AuraDrop" }
       : null;
-    const mode = { installed: "reinstall", update: "update", downgrade: "downgrade" }[scenario] ?? "fresh";
+    const mode = { installed: "reinstall", update: "update", downgrade: "downgrade", autoupdate: "update" }[scenario] ?? "fresh";
     return {
       version: "0.1.0",
       installed,
@@ -76,6 +77,7 @@ const mock = {
       appRunning: running,
       hasPayload: scenario !== "nopayload",
       autostartEnabled: scenario === "update",
+      autoUpdate: scenario === "autoupdate",
     };
   },
   async isAppRunning() {
