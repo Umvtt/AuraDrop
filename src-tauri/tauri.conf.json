@@ -24,7 +24,8 @@
         "decorations": false,
         "transparent": true,
         "shadow": true,
-        "dragDropEnabled": true
+        "dragDropEnabled": true,
+        "visible": false
       }
     ],
     "trayIcon": {
@@ -39,7 +40,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "category": "DeveloperTool",
     "shortDescription": "Playful glassmorphic UI builder",
     "longDescription": "Build animated glass cards with live 3D tilt, mesh-gradient auras and one-click CSS, HTML and Tailwind export.",
@@ -50,17 +54,18 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "fileAssociations": [
-      {
-        "ext": ["auradrop"],
-        "name": "AuraDrop Design",
-        "description": "AuraDrop design template",
-        "role": "Editor",
-        "mimeType": "application/json"
-      }
-    ],
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper" }
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "nsis/hooks.nsh",
+        "installerIcon": "icons/icon.ico",
+        "headerImage": "nsis/header.bmp",
+        "sidebarImage": "nsis/sidebar.bmp",
+        "displayLanguageSelector": false
+      }
     }
   }
 }

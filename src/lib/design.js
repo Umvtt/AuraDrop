@@ -226,7 +226,8 @@ export const CARD_LAYOUT = {
   buttonHeight: 36,
   buttonPadX: 18,
   buttonSize: 14,
-  fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, sans-serif',
+  // Inter is bundled in the app and loaded from Google Fonts by the exports.
+  fontFamily: '"Inter Variable", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif',
 };
 
 // ---------------------------------------------------------------------------

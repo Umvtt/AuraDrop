@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultDesign } from "../design.js";
-import { escapeHtml, generateCss, generateHtml, generateTailwind, tw } from "../codegen.js";
+import { escapeHtml, generateCode, generateCss, generateHtml, generateTailwind, tw } from "../codegen.js";
 
 describe("code generation", () => {
   it("reflects inspector values in CSS", () => {
@@ -32,6 +32,14 @@ describe("code generation", () => {
       expect(out).not.toContain("data:image");
       expect(out).toContain("aura-background.png");
     }
+  });
+
+  it("loads the same font as the preview in every export", () => {
+    const d = createDefaultDesign();
+    expect(generateCode(d, "css").startsWith('@import url("https://fonts.googleapis.com/css2?family=Inter')).toBe(true);
+    expect(generateHtml(d)).toContain('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter');
+    expect(generateTailwind(d)).toContain("fonts.googleapis.com/css2?family=Inter");
+    expect(generateCss(d)).toContain('font-family: "Inter Variable", "Inter"');
   });
 
   it("drops the tilt script when tilt is off", () => {

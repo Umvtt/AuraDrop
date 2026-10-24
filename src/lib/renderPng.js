@@ -22,7 +22,7 @@ export async function renderPng(design, { scene = true, scale = 2 } = {}) {
     loadImage(design.content.background),
     loadImage(design.content.avatar),
   ]);
-  await document.fonts?.ready;
+  await loadFonts();
 
   // The "world" behind the glass: obsidian plus the aura orbs. It is drawn
   // even for card-only exports because the frost needs something to blur.
@@ -247,6 +247,23 @@ function paintContent(ctx, design, avatarImage) {
 }
 
 // ---------------------------------------------------------------------------
+
+/** Canvas text silently falls back if a font isn't loaded yet. */
+async function loadFonts() {
+  if (!document.fonts) return;
+  const family = '"Inter Variable"';
+  const L = CARD_LAYOUT;
+  try {
+    await Promise.all([
+      document.fonts.load(`650 ${L.titleSize}px ${family}`),
+      document.fonts.load(`400 ${L.subtitleSize}px ${family}`),
+      document.fonts.load(`600 ${L.buttonSize}px ${family}`),
+    ]);
+  } catch {
+    // Fall back to the next font in the stack.
+  }
+  await document.fonts.ready;
+}
 
 function makeCanvas(w, h) {
   const c = document.createElement("canvas");

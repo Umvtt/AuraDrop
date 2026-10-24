@@ -7,6 +7,11 @@ export const PLACEHOLDER_BACKGROUND = "aura-background.png";
 export const PLACEHOLDER_AVATAR = "aura-avatar.png";
 
 const SPRING_EASE = "cubic-bezier(0.34, 1.56, 0.64, 1)";
+/** The card's font, so pasted code looks exactly like the preview. */
+export const FONT_CSS_URL = "https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap";
+const FONT_LINK = `<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="${FONT_CSS_URL}" />`;
 const DRIFT_BASE_SECONDS = 26;
 
 /**
@@ -409,7 +414,7 @@ export function tiltScript(design) {
 }
 
 export function generateHtml(design) {
-  const parts = ["<style>", indentBlock(generateCss(design), 2), "</style>", "", sceneMarkup(design, BEM)];
+  const parts = [FONT_LINK, "<style>", indentBlock(generateCss(design), 2), "</style>", "", sceneMarkup(design, BEM)];
   if (design.tilt.enabled) parts.push("", tiltScript(design));
   return parts.join("\n") + imageNote(design);
 }
@@ -487,7 +492,7 @@ export function tailwindClasses(design) {
 
 export function generateTailwind(design) {
   const cls = tailwindClasses(design);
-  const parts = [];
+  const parts = [FONT_LINK];
   const keyframes = keyframesCss(design);
   if (keyframes) {
     parts.push("<!-- Keyframes for the animate-[…] utilities (add once to your global CSS). -->");
@@ -517,7 +522,7 @@ function indentBlock(text, n) {
 }
 
 export function generateCode(design, kind) {
-  if (kind === "css") return generateCss(design) + cssImageNote(design);
+  if (kind === "css") return `@import url("${FONT_CSS_URL}");\n\n` + generateCss(design) + cssImageNote(design);
   if (kind === "html") return generateHtml(design);
   return generateTailwind(design);
 }

@@ -18,6 +18,8 @@ use tauri_plugin_fs::FsExt;
 const MAIN_WINDOW: &str = "main";
 const TRAY_ID: &str = "main";
 const DESIGN_EXT: &str = "auradrop";
+/// Passed by the "start with Windows" Run entry the installer writes.
+const AUTOSTART_ARG: &str = "--autostart";
 const MAX_IMAGE_BYTES: u64 = 15 * 1024 * 1024;
 const MAX_DESIGN_BYTES: u64 = 50 * 1024 * 1024;
 
@@ -324,6 +326,11 @@ pub fn run() {
                 // Let the frontend know immediately; it also re-queries via
                 // `set_backdrop` when the user changes the material.
                 let _ = window.emit("backdrop-applied", applied);
+                // The window starts hidden (see tauri.conf.json) so it can
+                // stay in the tray when Windows launches us at sign-in.
+                if !std::env::args().any(|arg| arg == AUTOSTART_ARG) {
+                    let _ = window.show();
+                }
             }
             setup_tray(handle)?;
             Ok(())
