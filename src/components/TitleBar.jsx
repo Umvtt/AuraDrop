@@ -125,6 +125,8 @@ export function TitleBar({
   onPreview,
   onEdit,
   onPalette,
+  uiMode,
+  onUiMode,
 }) {
   const [maximized, setMaximized] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -186,6 +188,27 @@ export function TitleBar({
         <button type="button" onClick={onPalette} title="Search every command (Ctrl+K)" className="press focus-ring mr-1 hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted hover:bg-white/10 hover:text-ink md:flex">
           Search commands <kbd className="kbd-hint">Ctrl K</kbd>
         </button>
+      )}
+      {mode === "edit" && onUiMode && (
+        <div className="mr-2 flex items-center rounded-xl bg-white/[0.05] p-0.5 text-[11.5px]" role="radiogroup" aria-label="Editor mode">
+          {[
+            ["simple", "Simple", "Just the main controls"],
+            ["pro", "Pro", "Every control: rulers, grid, exact sizes, fine-tuning"],
+          ].map(([id, label, tip]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={uiMode === id}
+              title={tip}
+              data-testid={`ui-${id}`}
+              onClick={() => onUiMode(id)}
+              className={`press rounded-lg px-2.5 py-1 font-medium ${uiMode === id ? "bg-white/[0.14] text-ink" : "text-muted hover:text-ink"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       )}
       {mode === "edit" && (
         <button

@@ -122,6 +122,42 @@ export function useEditor(initial) {
       return copies.map((c) => c.id);
     };
 
+    /**
+     * Mirror layers left↔right ("x") or top↕bottom ("y"). In place they flip
+     * inside their own box; with `copy` a mirrored copy goes on the other
+     * side of the canvas centre (handy for two tanks facing off).
+     */
+    const mirror = (ids, axis, { copy = false } = {}) => {
+      const made = [];
+      stepOnPage((pg) => {
+        const picked = pg.elements.filter((e) => ids.includes(e.id) && (copy || !e.locked));
+        if (!picked.length) return pg;
+        const b = boundsOf(picked);
+        const line = copy ? (axis === "x" ? project.canvas.w / 2 : project.canvas.h / 2) : axis === "x" ? b.x + b.w / 2 : b.y + b.h / 2;
+        const flip = (e) => {
+          const n = { ...e, rotation: e.rotation ? -e.rotation : 0 };
+          if (axis === "x") n.x = Math.round(2 * line - e.x - e.w);
+          else n.y = Math.round(2 * line - e.y - e.h);
+          if (e.type === "image") n[axis === "x" ? "flipX" : "flipY"] = !e[axis === "x" ? "flipX" : "flipY"];
+          // A mirrored camera angle gives the mirror image of the (symmetric) vehicle.
+          if (e.type === "vehicle" && axis === "x") n.yaw = -e.yaw;
+          return n;
+        };
+        if (!copy) return { ...pg, elements: pg.elements.map((e) => (picked.includes(e) ? flip(e) : e)) };
+        const regroup = new Map();
+        for (const el of picked) {
+          const c = flip(duplicateElement(el));
+          if (el.group) {
+            if (!regroup.has(el.group)) regroup.set(el.group, newId("g"));
+            c.group = regroup.get(el.group);
+          }
+          made.push(c);
+        }
+        return { ...pg, elements: [...pg.elements, ...made] };
+      });
+      if (made.length) setSelectedIds(made.map((c) => c.id));
+    };
+
     /** dir: +1 forward, -1 backward, "front", "back". Works on several. */
     const moveLayers = (ids, dir) =>
         stepOnPage((pg) => {
@@ -164,6 +200,7 @@ export function useEditor(initial) {
       removeElement: (id) => removeElements([id]),
       removeElements,
       duplicateElements,
+      mirror,
       duplicateElement: (id) => duplicateElements([id]),
       moveLayers,
       moveLayer: (id, dir) => moveLayers([id], dir),

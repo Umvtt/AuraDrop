@@ -1,4 +1,12 @@
-import { useCallback, useId, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useId, useRef, useState } from "react";
+
+/** "simple" hides the fiddly controls; "pro" shows everything. */
+export const UiModeContext = createContext("pro");
+export const usePro = () => useContext(UiModeContext) === "pro";
+/** Renders its children only in Pro mode. */
+export function Pro({ children }) {
+  return usePro() ? children : null;
+}
 
 const collapsedSections = (() => {
   try {

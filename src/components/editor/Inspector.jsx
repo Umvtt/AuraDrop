@@ -9,11 +9,13 @@ import {
   AlignStartVertical,
   AlignVerticalDistributeCenter,
   Copy,
+  Crop,
   Group,
   Lock,
   LockOpen,
   Trash2,
   Ungroup,
+  Wand2,
 } from "lucide-react";
 import {
   ACTION_TYPES,
@@ -22,17 +24,26 @@ import {
   CANVAS_LIMITS,
   CANVAS_PRESETS,
   FONTS,
+  MASKS,
   SHAPES,
   TRANSITIONS,
   createAction,
   safeUrl,
 } from "../../lib/project.js";
-import { AngleWheel, ColorInput, IconButton, NumberInput, Section, Segmented, Select, Slider, TextField, Toggle } from "../controls.jsx";
+import { AngleWheel, ColorInput, IconButton, NumberInput, Pro, Section, usePro, Segmented, Select, Slider, TextField, Toggle } from "../controls.jsx";
 import { Icons } from "../TitleBar.jsx";
 
 const px = (v) => `${Math.round(v)}px`;
 const pct = (v) => `${Math.round(v * 100)}%`;
 const TYPE_TITLE = { text: "Text", sticker: "Sticker", image: "Picture", shape: "Shape", glass: "Glass panel", button: "Button", vehicle: "Vehicle" };
+const MASK_LABEL = { none: "No mask", ellipse: "Circle", triangle: "Triangle", star: "Star", heart: "Heart", bubble: "Speech bubble" };
+const MASK_ICON = {
+  ellipse: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18Z",
+  triangle: "M12 3 22 20H2Z",
+  star: "M12 2.5l2.8 6.1 6.7.7-5 4.5 1.4 6.6L12 17l-5.9 3.4 1.4-6.6-5-4.5 6.7-.7Z",
+  heart: "M12 21C6 16.5 2.5 13 2.5 8.6 2.5 5.6 4.8 3.5 7.5 3.5c2 0 3.6 1.1 4.5 2.8.9-1.7 2.5-2.8 4.5-2.8 2.7 0 5 2.1 5 5.1 0 4.4-3.5 7.9-9.5 12.4Z",
+  bubble: "M5 3h14a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-9l-5 4v-4a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Z",
+};
 const SHAPE_LABEL = { rect: "Box", ellipse: "Circle", triangle: "Triangle", star: "Star", heart: "Heart", bubble: "Speech", arrow: "Arrow" };
 
 /** Settings for the selection (one or many layers), or for the page. */
@@ -80,7 +91,27 @@ export function AlignBar({ ids, align, distribute, many }) {
   );
 }
 
-function MultiPanel({ selection, align, distribute, group, ungroup, updateMany, removeMany, duplicateMany }) {
+/** Flip in place, or drop a mirrored copy on the other side of the page. */
+function MirrorRow({ ids, mirror }) {
+  const pro = usePro();
+  if (!mirror) return null;
+  const b = (label, title, fn, testid) => (
+    <button type="button" title={title} onClick={fn} data-testid={testid} className="press rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-1 text-[11px] hover:bg-white/[0.1]">
+      {label}
+    </button>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span className="panel-label mr-1">Mirror</span>
+      {b("Flip ↔", "Flip left-right (Shift+H)", () => mirror(ids, "x"), "mirror-x")}
+      {b("Flip ↕", "Flip upside down (Shift+V)", () => mirror(ids, "y"), "mirror-y")}
+      {b("Mirror copy ↔", "Add a mirrored copy on the other side of the page", () => mirror(ids, "x", { copy: true }), "mirror-copy-x")}
+      {pro && b("Mirror copy ↕", "Add a mirrored copy on the other half (top/bottom)", () => mirror(ids, "y", { copy: true }), "mirror-copy-y")}
+    </div>
+  );
+}
+
+function MultiPanel({ selection, align, distribute, group, ungroup, updateMany, removeMany, duplicateMany, mirror }) {
   const ids = selection.map((e) => e.id);
   const groups = new Set(selection.map((e) => e.group).filter(Boolean));
   const oneGroup = groups.size === 1 && selection.every((e) => e.group);
@@ -107,6 +138,7 @@ function MultiPanel({ selection, align, distribute, group, ungroup, updateMany, 
       </div>
       <Section icon="📐" title="Align & spread">
         <AlignBar ids={ids} align={align} distribute={distribute} many={selection.length >= 3} />
+        <MirrorRow ids={ids} mirror={mirror} />
         <p className="text-[11px] text-muted">Spreading out needs three or more things. Groups move as one.</p>
       </Section>
       <Section icon="🧩" title="Group">
@@ -126,6 +158,7 @@ function MultiPanel({ selection, align, distribute, group, ungroup, updateMany, 
         </div>
         <p className="text-[11px] text-muted">Click a group to select all of it, double-click to pick one layer inside.</p>
       </Section>
+      <Pro>
       <Section icon="🎚️" title="Together">
         <Slider label="Opacity" value={opacity} min={0} max={1} step={0.01} onChange={(o) => updateMany(ids, (e) => ({ ...e, opacity: o }))} format={pct} />
         <div className="flex flex-wrap gap-1">
@@ -140,6 +173,7 @@ function MultiPanel({ selection, align, distribute, group, ungroup, updateMany, 
           ))}
         </div>
       </Section>
+      </Pro>
     </>
   );
 }
@@ -148,7 +182,7 @@ function MultiPanel({ selection, align, distribute, group, ungroup, updateMany, 
 // Element
 // ---------------------------------------------------------------------------
 
-function ElementPanel({ el, project, page, update, remove, duplicate, chooseImage, chooseSound, align, distribute, vehiclePanel }) {
+function ElementPanel({ el, project, page, update, remove, duplicate, chooseImage, chooseSound, align, distribute, vehiclePanel, editPicture, mirror }) {
   const set = (patch) => update(el.id, patch);
   return (
     <>
@@ -167,7 +201,7 @@ function ElementPanel({ el, project, page, update, remove, duplicate, chooseImag
 
       {el.type === "text" && <TextPanel el={el} set={set} />}
       {el.type === "sticker" && <StickerPanel el={el} set={set} />}
-      {el.type === "image" && <ImagePanel el={el} set={set} project={project} chooseImage={chooseImage} />}
+      {el.type === "image" && <ImagePanel el={el} set={set} project={project} chooseImage={chooseImage} editPicture={editPicture} />}
       {el.type === "shape" && <ShapePanel el={el} set={set} />}
       {el.type === "glass" && <GlassPanel el={el} set={set} />}
       {el.type === "button" && <ButtonPanel el={el} set={set} />}
@@ -175,7 +209,7 @@ function ElementPanel({ el, project, page, update, remove, duplicate, chooseImag
 
       <ActionsPanel el={el} set={set} project={project} page={page} chooseSound={chooseSound} />
       <AnimationPanel el={el} set={set} />
-      <ArrangePanel el={el} set={set} canvas={project.canvas} align={align} distribute={distribute} />
+      <ArrangePanel el={el} set={set} canvas={project.canvas} align={align} distribute={distribute} mirror={mirror} />
     </>
   );
 }
@@ -201,22 +235,24 @@ function TextPanel({ el, set }) {
       <ColorInput label="Colour" value={el.color} onChange={(color) => set({ color })} />
       <Segmented label="Align" value={el.align} onChange={(align) => set({ align })} options={[{ id: "left", label: "Left" }, { id: "center", label: "Centre" }, { id: "right", label: "Right" }]} />
       <Toggle label="ALL CAPS" checked={el.upper} onChange={(upper) => set({ upper })} />
+      <Pro>
       <div className="grid grid-cols-2 gap-3">
         <Slider label="Spacing" value={el.spacing} min={-10} max={40} onChange={(spacing) => set({ spacing })} format={px} />
         <Slider label="Line height" value={el.lineHeight} min={0.7} max={2.5} step={0.05} onChange={(lineHeight) => set({ lineHeight })} format={(v) => v.toFixed(2)} />
       </div>
+      </Pro>
       <SubHeading>Meme outline</SubHeading>
       <Slider label="Outline" value={el.stroke.width} min={0} max={30} onChange={(width) => set({ stroke: { width } })} format={px} left="None" right="Chunky" />
       {el.stroke.width > 0 && <ColorInput label="Outline colour" value={el.stroke.color} onChange={(color) => set({ stroke: { color } })} />}
       <Toggle label="Shadow" checked={el.shadow.on} onChange={(on) => set({ shadow: { on } })} />
       {el.shadow.on && (
-        <>
+        <Pro>
           <ColorInput label="Shadow colour" value={el.shadow.color} onChange={(color) => set({ shadow: { color } })} />
           <div className="grid grid-cols-2 gap-3">
             <Slider label="Blur" value={el.shadow.blur} min={0} max={80} onChange={(blur) => set({ shadow: { blur } })} format={px} />
             <Slider label="Strength" value={el.shadow.opacity} min={0} max={1} step={0.01} onChange={(opacity) => set({ shadow: { opacity } })} format={pct} />
           </div>
-        </>
+        </Pro>
       )}
       <Toggle label="Highlight box" hint="A coloured box behind the words" checked={el.bg.on} onChange={(on) => set({ bg: { on } })} />
       {el.bg.on && (
@@ -240,7 +276,7 @@ function StickerPanel({ el, set }) {
   );
 }
 
-function ImagePanel({ el, set, project, chooseImage }) {
+function ImagePanel({ el, set, project, chooseImage, editPicture }) {
   const a = el.asset && project.assets[el.asset];
   const f = el.filters;
   return (
@@ -252,8 +288,43 @@ function ImagePanel({ el, set, project, chooseImage }) {
           {a ? "Change" : "Choose…"}
         </button>
       </div>
+      {a && editPicture && (
+        <div className="grid grid-cols-2 gap-1.5">
+          <button type="button" onClick={() => editPicture(el.id, "crop")} className="chip-btn justify-center py-2" data-testid="crop-btn">
+            <Crop size={14} /> Crop…
+          </button>
+          <button type="button" onClick={() => editPicture(el.id, "key")} className="chip-btn justify-center py-2" data-testid="key-btn">
+            <Wand2 size={14} /> Remove background…
+          </button>
+        </div>
+      )}
+      {el.original && (
+        <button type="button" onClick={() => set({ asset: el.original, original: null })} className="focus-ring self-start text-[11.5px] text-accent hover:underline">
+          Restore the original picture
+        </button>
+      )}
+      <div>
+        <p className="panel-label mb-1.5">Shape mask</p>
+        <div className="grid grid-cols-6 gap-1">
+          {MASKS.map((m) => (
+            <button
+              key={m}
+              type="button"
+              title={`Mask: ${MASK_LABEL[m]}`}
+              data-testid={`mask-${m}`}
+              aria-pressed={el.mask === m}
+              onClick={() => set({ mask: m })}
+              className={`press grid h-9 place-items-center rounded-lg border ${el.mask === m ? "border-accent/60 bg-accent/20" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.09]"}`}
+            >
+              {m === "none" ? <span className="text-[10.5px] text-muted">None</span> : (
+                <svg viewBox="0 0 24 24" width="18" height="18"><path d={MASK_ICON[m]} fill="currentColor" /></svg>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
       <Segmented label="Fit" value={el.fit} onChange={(fit) => set({ fit })} options={[{ id: "cover", label: "Fill" }, { id: "contain", label: "Fit" }, { id: "fill", label: "Stretch" }]} />
-      <Slider label="Corners" value={el.radius} min={0} max={Math.round(Math.min(el.w, el.h) / 2)} onChange={(radius) => set({ radius })} format={px} left="Square" right="Round" />
+      {el.mask === "none" && <Slider label="Corners" value={el.radius} min={0} max={Math.round(Math.min(el.w, el.h) / 2)} onChange={(radius) => set({ radius })} format={px} left="Square" right="Round" />}
       <div className="grid grid-cols-2 gap-2">
         <Toggle label="Flip ↔" checked={el.flipX} onChange={(flipX) => set({ flipX })} />
         <Toggle label="Flip ↕" checked={el.flipY} onChange={(flipY) => set({ flipY })} />
@@ -262,6 +333,7 @@ function ImagePanel({ el, set, project, chooseImage }) {
       <Slider label="Border" value={el.border.width} min={0} max={40} onChange={(width) => set({ border: { width } })} format={px} />
       {el.border.width > 0 && <ColorInput label="Border colour" value={el.border.color} onChange={(color) => set({ border: { color } })} />}
       <SubHeading>Filters</SubHeading>
+      <Pro>
       <div className="grid grid-cols-2 gap-3">
         <Slider label="Brightness" value={f.brightness} min={0} max={200} onChange={(brightness) => set({ filters: { brightness } })} format={(v) => `${v}%`} />
         <Slider label="Contrast" value={f.contrast} min={0} max={200} onChange={(contrast) => set({ filters: { contrast } })} format={(v) => `${v}%`} />
@@ -270,6 +342,7 @@ function ImagePanel({ el, set, project, chooseImage }) {
         <Slider label="Grey" value={f.grayscale} min={0} max={100} onChange={(grayscale) => set({ filters: { grayscale } })} format={(v) => `${v}%`} />
         <Slider label="Blur" value={f.blur} min={0} max={30} onChange={(blur) => set({ filters: { blur } })} format={px} />
       </div>
+      </Pro>
       <button
         type="button"
         onClick={() => set({ filters: { brightness: 100, contrast: 100, saturate: 100, hue: 0, grayscale: 0, blur: 0 } })}
@@ -563,10 +636,12 @@ function AnimationPanel({ el, set }) {
   );
 }
 
-function ArrangePanel({ el, set, canvas, align, distribute }) {
+function ArrangePanel({ el, set, canvas, align, distribute, mirror }) {
   return (
     <Section icon="📐" title="Position & size">
-      {align && <AlignBar ids={[el.id]} align={align} distribute={distribute} />}
+      <Pro>{align && <AlignBar ids={[el.id]} align={align} distribute={distribute} />}</Pro>
+      <MirrorRow ids={[el.id]} mirror={mirror} />
+      <Pro>
       <div className="grid grid-cols-2 gap-1.5">
         <NumberInput label="X" value={el.x} onChange={(x) => set({ x })} />
         <NumberInput label="Y" value={el.y} onChange={(y) => set({ y })} />
@@ -574,6 +649,7 @@ function ArrangePanel({ el, set, canvas, align, distribute }) {
         <NumberInput label="H" value={el.h} min={4} onChange={(h) => set({ h: Math.max(4, h) })} />
         <NumberInput label="↻" value={el.rotation} suffix="°" onChange={(rotation) => set({ rotation })} />
       </div>
+      </Pro>
       <Slider label="Opacity" value={el.opacity} min={0} max={1} step={0.01} onChange={(opacity) => set({ opacity })} format={pct} />
       <div className="flex flex-wrap gap-1">
         {[
@@ -653,10 +729,12 @@ function PagePanel({ project, page, pageIndex, updatePage, setProject, chooseBac
           }}
           options={[...CANVAS_PRESETS.map((p) => ({ value: p.id, label: `${p.label} (${p.w}×${p.h})` })), { value: "custom", label: "Custom" }]}
         />
+        <Pro>
         <div className="grid grid-cols-2 gap-1.5">
           <NumberInput label="W" value={project.canvas.w} min={CANVAS_LIMITS.min} max={CANVAS_LIMITS.max} onChange={(w) => setProject((p) => ({ ...p, canvas: { ...p.canvas, w: clampSize(w) } }))} />
           <NumberInput label="H" value={project.canvas.h} min={CANVAS_LIMITS.min} max={CANVAS_LIMITS.max} onChange={(h) => setProject((p) => ({ ...p, canvas: { ...p.canvas, h: clampSize(h) } }))} />
         </div>
+        </Pro>
       </Section>
     </>
   );

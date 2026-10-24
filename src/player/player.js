@@ -387,10 +387,17 @@ function createPlayer(root, initialProject, options) {
         break;
       case "image": {
         const a = asset(el.asset);
+        const masked = el.mask && el.mask !== "none";
         inner.classList.add("ad-img");
-        inner.style.borderRadius = `${el.radius}px`;
-        if (el.border.width) inner.style.border = `${el.border.width}px solid ${el.border.color}`;
-        if (el.shadow) inner.style.boxShadow = "0 18px 40px rgba(0,0,0,.45)";
+        if (masked) {
+          // A shape mask: the picture is clipped, the shadow follows the shape.
+          inner.style.overflow = "visible";
+          if (el.shadow) inner.style.filter = "drop-shadow(0 18px 24px rgba(0,0,0,.45))";
+        } else {
+          inner.style.borderRadius = `${el.radius}px`;
+          if (el.border.width) inner.style.border = `${el.border.width}px solid ${el.border.color}`;
+          if (el.shadow) inner.style.boxShadow = "0 18px 40px rgba(0,0,0,.45)";
+        }
         if (a) {
           const img = make("img");
           img.src = a.data;
@@ -399,7 +406,18 @@ function createPlayer(root, initialProject, options) {
           img.style.objectFit = el.fit;
           img.style.filter = imageFilter(el.filters);
           if (el.flipX || el.flipY) img.style.transform = `scale(${el.flipX ? -1 : 1}, ${el.flipY ? -1 : 1})`;
-          inner.append(img);
+          if (masked) {
+            const clip = make("div");
+            clip.style.cssText = `position:absolute;inset:0;clip-path:path('${shapePath(el.mask, el.w, el.h, Math.min(el.w, el.h) * 0.2)}')`;
+            img.style.cssText += ";width:100%;height:100%;display:block";
+            clip.append(img);
+            inner.append(clip);
+            if (el.border.width) {
+              const b = el.border.width;
+              const svg = `<svg viewBox="0 0 ${el.w} ${el.h}" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none"><path d="${shapePath(el.mask, el.w, el.h, Math.min(el.w, el.h) * 0.2, b / 2)}" fill="none" stroke="${el.border.color}" stroke-width="${b}" stroke-linejoin="round"/></svg>`;
+              inner.insertAdjacentHTML("beforeend", svg);
+            }
+          } else inner.append(img);
         } else if (o.mode === "edit") {
           inner.classList.add("ad-placeholder");
           inner.textContent = "🖼️ Drop a picture here";

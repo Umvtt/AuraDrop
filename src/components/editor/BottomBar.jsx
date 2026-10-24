@@ -84,10 +84,10 @@ export function BottomBar({ project, pageIndex, onGoTo, onAddPage, onDuplicatePa
         <button
           type="button"
           onClick={onSave}
-          title="Save as .auradrop (Ctrl+S)"
+          title="Your work autosaves. This saves a .auradrop file you can share or back up (Ctrl+Shift+S)"
           className="press focus-ring flex items-center gap-1.5 rounded-xl border border-white/12 bg-white/[0.08] px-3.5 py-2 text-[12.5px] font-semibold whitespace-nowrap text-ink hover:bg-white/[0.14]"
         >
-          {Icons.save} Save .auradrop
+          {Icons.save} Save file
         </button>
         <button
           type="button"

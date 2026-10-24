@@ -174,8 +174,8 @@ export function CommandPalette({ commands, onClose }) {
 export const SHORTCUTS = [
   ["General", [
     ["Ctrl+K", "Command palette"],
-    ["Ctrl+N / O / S", "New, open, save"],
-    ["Ctrl+Shift+S", "Save as"],
+    ["Ctrl+N / O / S", "New, open, save now"],
+    ["Ctrl+Shift+S", "Save as a file"],
     ["Ctrl+E", "Export PNG"],
     ["F5", "Preview / edit"],
     ["F1 or ?", "This list"],
@@ -184,6 +184,7 @@ export const SHORTCUTS = [
     ["Ctrl+Z / Ctrl+Y", "Undo / redo"],
     ["Ctrl+C / X / V", "Copy, cut, paste"],
     ["Ctrl+D", "Duplicate"],
+    ["Shift+H / Shift+V", "Flip left-right / upside down"],
     ["Delete", "Delete"],
     ["Ctrl+A", "Select all"],
     ["Ctrl+G / Ctrl+Shift+G", "Group / ungroup"],

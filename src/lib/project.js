@@ -40,6 +40,7 @@ export const FONTS = [
 
 export const ELEMENT_TYPES = ["text", "sticker", "image", "shape", "glass", "button", "vehicle"];
 export const SHAPES = ["rect", "ellipse", "triangle", "star", "heart", "bubble", "arrow"];
+export const MASKS = ["none", "ellipse", "triangle", "star", "heart", "bubble"];
 export const ANIMATIONS = [
   { id: "none", label: "None" },
   { id: "float", label: "Float" },
@@ -120,6 +121,8 @@ export const DEFAULTS = {
     shadow: false,
     flipX: false,
     flipY: false,
+    mask: "none",
+    original: null,
     filters: { brightness: 100, contrast: 100, saturate: 100, blur: 0, hue: 0, grayscale: 0 },
   }),
   shape: () => ({
@@ -554,7 +557,7 @@ TEMPLATES.splice(1, 0,
       pg.bg = { ...pg.bg, colors: ["#f97316", "#8b5cf6", "#0ea5e9"] };
       const [a, b] = PRESET_FOR_TEMPLATES.length ? PRESET_FOR_TEMPLATES : [createVehicle("tank", { name: "Tank A" }), createVehicle("tank", { name: "Tank B" })];
       const left = createElement("vehicle", c, { vehicle: a, name: a?.name, x: Math.round(c.w * 0.02), y: Math.round(c.h * 0.22), w: Math.round(c.w * 0.46), h: Math.round(c.h * 0.55), yaw: 30 });
-      const right = createElement("vehicle", c, { vehicle: b, name: b?.name, x: Math.round(c.w * 0.52), y: Math.round(c.h * 0.22), w: Math.round(c.w * 0.46), h: Math.round(c.h * 0.55), yaw: 150 });
+      const right = createElement("vehicle", c, { vehicle: b, name: b?.name, x: Math.round(c.w * 0.52), y: Math.round(c.h * 0.22), w: Math.round(c.w * 0.46), h: Math.round(c.h * 0.55), yaw: -30 });
       pg.elements.push(
         left,
         right,
@@ -781,6 +784,8 @@ function sanitizeElement(e, pageIds) {
         shadow: bool(e.shadow, false),
         flipX: bool(e.flipX, false),
         flipY: bool(e.flipY, false),
+        mask: pick(e.mask, MASKS, "none"),
+        original: typeof e.original === "string" ? e.original : null,
         filters: sub(e.filters, d.filters, {
           brightness: (v, f) => num(v, 0, 300, f),
           contrast: (v, f) => num(v, 0, 300, f),
@@ -919,6 +924,7 @@ export function sanitizeProject(input) {
       if (ids.has(el.id)) el.id = newId();
       ids.add(el.id);
       if ((el.type === "image") && el.asset && assets[el.asset]?.kind !== "image") el.asset = null;
+      if (el.type === "image" && el.original && assets[el.original]?.kind !== "image") el.original = null;
       el.actions.forEach((a) => {
         if (a.type === "sound" && a.asset && assets[a.asset]?.kind !== "audio") a.asset = null;
       });
@@ -935,6 +941,7 @@ export function pruneAssets(project) {
     if (page.bg.asset) used.add(page.bg.asset);
     for (const el of page.elements) {
       if (el.asset) used.add(el.asset);
+      if (el.original) used.add(el.original);
       el.actions.forEach((a) => a.asset && used.add(a.asset));
     }
   }

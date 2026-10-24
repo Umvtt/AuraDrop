@@ -169,9 +169,10 @@ const DRAW = {
     ctx.fillText(el.emoji, el.w / 2, el.h / 2 + size * 0.04);
   },
 
-  image(ctx, el, { images }) {
+  image(ctx, el, { images, s }) {
     const img = images.get(el.asset);
     if (!img) return;
+    if (el.mask && el.mask !== "none") return drawMaskedImage(ctx, el, img, s);
     if (el.shadow) outerShadow(ctx, el.w, el.h, Math.min(el.radius, el.w / 2, el.h / 2), "rgba(0,0,0,.45)", 40, 18);
     ctx.save();
     ctx.beginPath();
@@ -341,6 +342,47 @@ const DRAW = {
 // ---------------------------------------------------------------------------
 
 /** A shadow that, like CSS box-shadow, only shows outside the shape. */
+const imageFilterCss = (f) =>
+  [
+    f.brightness !== 100 && `brightness(${f.brightness}%)`,
+    f.contrast !== 100 && `contrast(${f.contrast}%)`,
+    f.saturate !== 100 && `saturate(${f.saturate}%)`,
+    f.hue && `hue-rotate(${f.hue}deg)`,
+    f.grayscale && `grayscale(${f.grayscale}%)`,
+    f.blur && `blur(${f.blur}px)`,
+  ]
+    .filter(Boolean)
+    .join(" ") || "none";
+
+/** A picture clipped to a shape; drawn off-screen first so the shadow follows the shape. */
+function drawMaskedImage(ctx, el, img, s) {
+  const r = Math.min(el.w, el.h) * 0.2;
+  const off = makeCanvas(el.w * s, el.h * s);
+  const g = off.getContext("2d");
+  g.scale(s, s);
+  g.clip(new Path2D(shapePath(el.mask, el.w, el.h, r)));
+  g.filter = imageFilterCss(el.filters);
+  if (el.flipX || el.flipY) {
+    g.translate(el.flipX ? el.w : 0, el.flipY ? el.h : 0);
+    g.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
+  }
+  drawFit(g, img, 0, 0, el.w, el.h, el.fit);
+  ctx.save();
+  if (el.shadow) {
+    ctx.shadowColor = "rgba(0,0,0,.45)";
+    ctx.shadowBlur = 24;
+    ctx.shadowOffsetY = 18;
+  }
+  ctx.drawImage(off, 0, 0, el.w, el.h);
+  ctx.restore();
+  if (el.border.width) {
+    ctx.strokeStyle = el.border.color;
+    ctx.lineWidth = el.border.width;
+    ctx.lineJoin = "round";
+    ctx.stroke(new Path2D(shapePath(el.mask, el.w, el.h, r, el.border.width / 2)));
+  }
+}
+
 function outerShadow(ctx, w, h, r, color, blur, offsetY) {
   ctx.save();
   const outside = new Path2D();

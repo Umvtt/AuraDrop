@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Command, Grid3x3, Magnet, Pause, Play, Ruler, Wrench } from "lucide-react";
-import { Section, Segmented, Slider, Toggle } from "./components/controls.jsx";
+import { Section, Segmented, Slider, Toggle, UiModeContext } from "./components/controls.jsx";
 import { BottomBar } from "./components/editor/BottomBar.jsx";
 import { Canvas } from "./components/editor/Canvas.jsx";
 import { Inspector } from "./components/editor/Inspector.jsx";
 import { LeftPanel } from "./components/editor/LeftPanel.jsx";
+import { PictureTools } from "./components/editor/PictureTools.jsx";
 import { Preview } from "./components/Preview.jsx";
 import { Home } from "./components/Home.jsx";
 import { TitleBar } from "./components/TitleBar.jsx";
@@ -79,6 +80,9 @@ export default function App() {
   const [shortcuts, setShortcuts] = useState(false);
   const [grid, setGridState] = useState(() => readPref("grid", { show: false, snap: false, size: 40 }));
   const [rulers, setRulersState] = useState(() => readPref("rulers", true));
+  const [uiMode, setUiModeState] = useState(() => readPref("uiMode", "simple"));
+  const setUiMode = (m) => (writePref("uiMode", m), setUiModeState(m));
+  const pro = uiMode === "pro";
   const setGrid = (g) => setGridState((cur) => (writePref("grid", typeof g === "function" ? g(cur) : g), typeof g === "function" ? g(cur) : g));
   const setRulers = (r) => setRulersState((cur) => (writePref("rulers", typeof r === "function" ? r(cur) : r), typeof r === "function" ? r(cur) : r));
   const [previewPage, setPreviewPage] = useState(0);
@@ -349,7 +353,32 @@ export default function App() {
   const setPicture = useCallback(
     (elId, data, name) =>
       editor.withAsset("image", data, name, (p, id) =>
-        editor.pageUpdater((pg) => ({ ...pg, elements: pg.elements.map((e) => (e.id === elId ? { ...e, asset: id } : e)) }))(p),
+        editor.pageUpdater((pg) => ({ ...pg, elements: pg.elements.map((e) => (e.id === elId ? { ...e, asset: id, original: null } : e)) }))(p),
+      ),
+    [editor],
+  );
+
+  /** Apply a crop / background removal: the result becomes a new picture, the first one is kept to restore. */
+  const [pictureTools, setPictureTools] = useState(null); // { elId, tab }
+  const applyPicture = useCallback(
+    (elId, data, { aspect } = {}) =>
+      editor.withAsset("image", data, "edited picture", (p, id) =>
+        editor.pageUpdater((pg) => ({
+          ...pg,
+          elements: pg.elements.map((e) => {
+            if (e.id !== elId) return e;
+            const next = { ...e, asset: id, original: e.original ?? e.asset };
+            if (aspect) {
+              // Reshape the layer to the cropped picture, keeping its centre and longest side.
+              const long = Math.max(e.w, e.h);
+              next.w = Math.round(aspect >= 1 ? long : long * aspect);
+              next.h = Math.round(aspect >= 1 ? long / aspect : long);
+              next.x = Math.round(e.x + (e.w - next.w) / 2);
+              next.y = Math.round(e.y + (e.h - next.h) / 2);
+            }
+            return next;
+          }),
+        }))(p),
       ),
     [editor],
   );
@@ -649,6 +678,8 @@ export default function App() {
         if (e.key === "[") return run(() => ed.moveLayers(ids, "back"));
         return;
       }
+      if (e.shiftKey && key === "h" && ids.length) return run(() => ed.mirror(ids, "x"));
+      if (e.shiftKey && key === "v" && ids.length) return run(() => ed.mirror(ids, "y"));
       if (e.shiftKey && e.key === "!") return run(() => k.canvasRef.current?.zoomFit());
       if (e.shiftKey && e.key === "@") return run(() => k.canvasRef.current?.zoomToSelection());
       if (!ids.length) return;
@@ -708,6 +739,8 @@ export default function App() {
           setMode("preview");
         }}
         onEdit={() => setMode("edit")}
+        uiMode={uiMode}
+        onUiMode={setUiMode}
         settings={{
           backdrop,
           backdropApplied,
@@ -759,6 +792,7 @@ export default function App() {
       )}
 
       {mode === "edit" && (
+        <UiModeContext.Provider value={uiMode}>
         <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
           <LeftPanel
             page={page}
@@ -787,10 +821,10 @@ export default function App() {
                 onGuides={(guides) => editor.updatePage({ guides })}
                 animate={animate}
                 dropTarget={dropTarget}
-                grid={grid}
-                rulers={rulers}
+                grid={pro ? grid : { ...grid, show: false, snap: false }}
+                rulers={pro && rulers}
               />
-              <CanvasToolbar grid={grid} setGrid={setGrid} rulers={rulers} setRulers={setRulers} animate={animate} setAnimate={setAnimate} onPalette={() => setPalette(true)} />
+              <CanvasToolbar pro={pro} grid={grid} setGrid={setGrid} rulers={rulers} setRulers={setRulers} animate={animate} setAnimate={setAnimate} onPalette={() => setPalette(true)} />
             </div>
             <BottomBar
               project={project}
@@ -800,7 +834,7 @@ export default function App() {
               onDuplicatePage={editor.duplicatePage}
               onRemovePage={editor.removePage}
               onMovePage={editor.movePage}
-              onSave={() => save()}
+              onSave={() => save({ saveAs: !file.path })}
               onExportPng={exportPng}
               onExportHtml={exportHtml}
               busy={busy}
@@ -820,11 +854,13 @@ export default function App() {
             duplicateMany={editor.duplicateElements}
             align={editor.align}
             distribute={editor.distribute}
+            mirror={editor.mirror}
             group={editor.group}
             ungroup={editor.ungroup}
             vehiclePanel={vehiclePanel}
             updatePage={editor.updatePage}
             setProject={editor.setProject}
+            editPicture={(elId, tab) => setPictureTools({ elId, tab })}
             chooseImage={async (elId) => {
               const m = await pick("image");
               if (m) setPicture(elId, m.data, m.name);
@@ -839,11 +875,37 @@ export default function App() {
             }}
           />
         </div>
+        </UiModeContext.Provider>
       )}
 
       {menu && mode === "edit" && <ContextMenu x={menu.x} y={menu.y} items={contextItems(app, menu.id)} onClose={() => setMenu(null)} />}
       {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
       {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
+      {pictureTools && (() => {
+        const el = page.elements.find((e) => e.id === pictureTools.elId);
+        const a = el?.asset && project.assets[el.asset];
+        if (!a) return null;
+        return (
+          <PictureTools
+            key={el.asset}
+            src={a.data}
+            name={a.name}
+            aspect={el.w / el.h}
+            initialTab={pictureTools.tab}
+            hasOriginal={!!el.original}
+            onClose={() => setPictureTools(null)}
+            onRestore={() => {
+              editor.updateElement(el.id, { asset: el.original, original: null }, { step: true });
+              setPictureTools(null);
+            }}
+            onApply={(data, extra) => {
+              applyPicture(el.id, data, extra);
+              setPictureTools(null);
+              notify("Done – Ctrl+Z undoes it", "success");
+            }}
+          />
+        );
+      })()}
       {vehiclePicker && (
         <VehiclePicker
           hangar={hangar}
@@ -890,12 +952,14 @@ function ToolToggle({ on, onClick, label, Icon, testid }) {
   );
 }
 
-function CanvasToolbar({ grid, setGrid, rulers, setRulers, animate, setAnimate, onPalette }) {
+function CanvasToolbar({ pro, grid, setGrid, rulers, setRulers, animate, setAnimate, onPalette }) {
   return (
-    <div className="glass-float absolute top-7 right-3 flex items-center gap-0.5 rounded-xl p-0.5">
+    <div className={`glass-float absolute ${pro ? "top-7" : "top-3"} right-3 flex items-center gap-0.5 rounded-xl p-0.5`}>
+      {pro && <>
       <ToolToggle on={grid.show} onClick={() => setGrid((g) => ({ ...g, show: !g.show }))} label="Show grid (Ctrl+')" Icon={Grid3x3} testid="toggle-grid" />
       <ToolToggle on={grid.snap} onClick={() => setGrid((g) => ({ ...g, snap: !g.snap }))} label="Snap to grid" Icon={Magnet} testid="toggle-snap" />
       <ToolToggle on={rulers} onClick={() => setRulers((r) => !r)} label="Rulers & guides" Icon={Ruler} testid="toggle-rulers" />
+      </>}
       <ToolToggle on={animate} onClick={() => setAnimate((a) => !a)} label="Play animations while editing" Icon={animate ? Pause : Play} testid="toggle-anim" />
       <span className="mx-0.5 h-4 w-px bg-white/10" />
       <button type="button" onClick={onPalette} className="press flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] text-muted hover:bg-white/10 hover:text-ink">
