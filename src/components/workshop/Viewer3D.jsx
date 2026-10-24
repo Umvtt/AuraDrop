@@ -58,7 +58,7 @@ export function Viewer3D({ vehicle, view, playing, onArmorHover }) {
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.maxPolarAngle = Math.PI * 0.49;
-    controls.minDistance = 3;
+    controls.minDistance = 2.5;
     controls.maxDistance = 40;
     controls.target.set(0.5, 1.2, 0);
     scene.add(new THREE.HemisphereLight(0xc9d6e6, 0x5a4a35, 0.7));
@@ -187,6 +187,18 @@ export function Viewer3D({ vehicle, view, playing, onArmorHover }) {
         c.built.dispose();
       }
       c.built = next;
+      // Frame the tank so it fills the view (first time, and when a different vehicle is loaded).
+      if (c.framedId !== vehicle.id) {
+        c.framedId = vehicle.id;
+        const sz = next.size;
+        const ctr = next.center;
+        const radius = Math.max(sz.length * 0.5, sz.height * 0.85, sz.width * 0.6);
+        const dist = (radius / Math.tan((c.camera.fov * Math.PI) / 360)) * (c.camera.aspect < 1.3 ? 1.3 / c.camera.aspect : 1) * 0.95;
+        const dir = new THREE.Vector3(0.66, 0.3, 0.69).normalize();
+        c.controls.target.set(ctr.x, ctr.y * 0.75, ctr.z);
+        c.camera.position.copy(c.controls.target).addScaledVector(dir, dist);
+        c.controls.update();
+      }
       c.scene.add(next.root);
       c.needsPose = true;
       c.forceDraw = true;

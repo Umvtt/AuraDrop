@@ -580,3 +580,36 @@ export function sanitizeVehicle(input) {
       })),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Random tanks
+// ---------------------------------------------------------------------------
+
+const NAMES_A = ["Iron", "Steel", "Thunder", "Grim", "Mad", "Bad", "Big", "Angry", "Royal", "Desert", "Arctic", "Shadow", "Rusty", "Lucky", "Cursed"];
+const NAMES_B = ["Badger", "Wolf", "Mammoth", "Brick", "Panzer", "Toaster", "Beast", "Fortress", "Hammer", "Bulldog", "Kettle", "Rhino", "Goblin", "Potato"];
+
+/**
+ * A random tank. Normal mode stays believable; "cursed" mode pushes every
+ * slider to silly extremes (still valid, just ridiculous).
+ */
+export function randomVehicle(cursed = false, rnd = Math.random) {
+  const pick = (list) => list[Math.floor(rnd() * list.length)];
+  const between = (a, b, step = 0.01) => Math.round((a + rnd() * (b - a)) / step) * step;
+  const v = createVehicle("tank");
+  const s = v.spec;
+  const L = cursed ? between(3.5, 10) : between(5.2, 7.8);
+  const W = cursed ? between(2, 4.2) : between(2.8, 3.7);
+  s.hull = { ...s.hull, style: pick(HULL_STYLES)[0], length: L, width: W, height: cursed ? between(1.2, 2.8) : between(1.7, 2.2), front: Math.round(cursed ? between(5, 700, 1) : between(40, 200, 1)), frontSlope: Math.round(between(0, cursed ? 85 : 65, 1)), lower: Math.round(between(30, 150, 1)), lowerSlope: Math.round(between(10, 60, 1)), side: Math.round(between(20, 100, 1)), sideSlope: rnd() < 0.3 ? Math.round(between(10, 40, 1)) : 0, rear: Math.round(between(20, 80, 1)), roof: Math.round(between(10, 40, 1)), zimmerit: rnd() < 0.25 };
+  s.turret = { ...s.turret, style: pick(TURRET_STYLES.filter((t) => cursed || t[0] !== "none"))[0], at: between(cursed ? 0.25 : 0.4, cursed ? 0.75 : 0.6), length: cursed ? between(1.2, 4.5) : between(L * 0.32, L * 0.48), width: cursed ? between(1.2, 3.8) : between(W * 0.62, W * 0.9), height: cursed ? between(0.5, 1.4) : between(0.75, 1.0), front: Math.round(between(50, cursed ? 900 : 250, 1)), frontSlope: Math.round(between(0, 40, 1)), cupola: pick(["blocks", "hatch", "mg", "modern"]), bustle: pick(["none", "bin", "basket", "modern"]), smoke: Math.floor(between(0, 4, 1)), spareLinks: Math.floor(between(0, 5, 1)) };
+  const cal = Math.round(cursed ? between(20, 155, 1) : pick([75, 76, 85, 88, 90, 100, 105, 122, 128]));
+  s.gun = { ...s.gun, caliber: cal, length: Math.round(cursed ? between(15, 75, 1) : between(40, 71, 1)), shell: pick(["APCBC", "APHE", "APDS", "HEAT", "APFSDS"]), loading: pick(["unitary", "unitary", "separate", "autoloader"]), brake: pick(["double", "single", "slotted", "none"]), mantlet: pick(["box", "saukopf", "cast", "slab"]), mantletArmor: Math.round(between(60, 300, 1)), evacuator: rnd() < 0.4, sleeve: rnd() < 0.3, kills: rnd() < 0.3 ? Math.floor(between(1, 12, 1)) : 0 };
+  s.gear = { ...s.gear, style: pick(WHEEL_STYLES)[0], wheels: Math.floor(between(4, cursed ? 12 : 9, 1)), wheelSize: between(0.45, 0.9), rollers: Math.floor(between(0, 5, 1)), drive: pick(["front", "rear"]), trackWidth: between(0.45, 0.8), skirts: pick(["none", "none", "panels", "rubber", "armour", "era"]) };
+  s.engine = { kind: pick(["petrol", "diesel", "turbine"]), hp: Math.round(between(cursed ? 50 : 350, cursed ? 2000 : 1200, 10)), fuel: Math.round(between(300, 1500, 10)) };
+  s.details = { ...s.details, stowage: pick(["none", "field", "logs", "heavy"]), sandbags: rnd() < 0.2, glacisTracks: rnd() < 0.3, fuelDrums: rnd() < 0.25, applique: rnd() < 0.2, spareWheels: rnd() < 0.2, exhaust: pick(["mufflers", "pipes", "deflector", "grille"]), antennas: Math.floor(between(0, 3, 1)) };
+  const p = pick(PAINTS.filter((x) => cursed || !x.gloss));
+  s.paint = { ...s.paint, base: p.base, camo: p.camo, c1: p.colors[0], c2: p.colors[1], c3: p.colors[2], gloss: p.gloss ? 0.6 : 0.1, wear: between(0.1, 0.7), seed: Math.floor(rnd() * 1e6) };
+  s.markings = { ...s.markings, number: rnd() < 0.6 ? String(Math.floor(between(100, 999, 1))) : "", insignia: "auto" };
+  v.nation = pick(NATIONS).id;
+  v.name = `${pick(NAMES_A)} ${pick(NAMES_B)}`;
+  return sanitizeVehicle(v);
+}

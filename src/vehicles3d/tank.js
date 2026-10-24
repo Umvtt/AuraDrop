@@ -101,7 +101,7 @@ function buildHull(spec, lay, M, out) {
   }
   g.add(mesh(upper, paint, armorFn));
   // Pannier floor under the sponsons (it's what you see above the tracks).
-  if (!lay.tall) g.add(mesh(box(lay.L * 0.92, 0.04, lay.Wt, (lay.frontX(lay.ys) + lay.rearX(lay.ys)) / 2, lay.ys + 0.02, 0), M.paintPlain, () => ({ name: "Sponson floor", t: 20 })));
+  if (!lay.tall) g.add(mesh(box(lay.L * 0.9, 0.035, lay.Wt - 0.01, (lay.frontX(lay.ys) + lay.rearX(lay.ys)) / 2, lay.ys - 0.025, 0), M.paintPlain, () => ({ name: "Sponson floor", t: 20 })));
 
   const top = lay.Hh;
   const fxTop = lay.frontX(top);
@@ -228,7 +228,7 @@ function buildHull(spec, lay, M, out) {
       for (const s of [-1, 1]) {
         for (let k = 0; k < 3; k++) {
           const y0 = lay.ys + ((top - lay.ys) * k) / 3;
-          g.add(mesh(box(0.07, (top - lay.ys) / 3 - 0.02, 0.1, lay.frontX(y0) + 0.02 + (k % 2) * 0.02, y0 + (top - lay.ys) / 6, s * (supW / 2 - 0.05)), paint, armorFn));
+          g.add(mesh(box(0.07, (top - lay.ys) / 3 - 0.02, 0.1, lay.frontX(y0) + 0.025 + (k % 2) * 0.02, y0 + (top - lay.ys) / 6, s * (supW / 2 - 0.043)), paint, armorFn));
         }
       }
     }
@@ -267,7 +267,6 @@ function buildHull(spec, lay, M, out) {
       const z = s * (halfAt(y) + 0.005);
       for (const x of [lay.L * 0.18, -lay.L * 0.12]) g.add(grabHandle(V3(x - 0.18, y, z), V3(x + 0.18, y, z), V3(0, 0, s), M, 0.06));
     }
-    for (const x of [fxTop - 0.95]) g.add(grabHandle(V3(x, top, -0.15), V3(x, top, 0.15), V3(0, 1, 0), M, 0.06));
   }
   // Appliqué armour welded over the ammo stowage (Sherman style).
   if (D.applique) {
@@ -801,9 +800,23 @@ function buildTurret(spec, lay, M, out) {
     if (n.x < -0.5) return { name: "Turret rear", t: T.rear };
     return { name: "Turret side", t: T.side };
   };
-  let frontX = lay.frontX(lay.Hh - 0.35);
+  let frontX;
   let gunY = lay.Hh - 0.35;
   let shell = null;
+  let probe = null;
+  // Where the turret surface really is (curved turrets need this so parts sit on them).
+  const ray = new THREE.Raycaster();
+  const hitP = (o, d) => {
+    if (!probe) return null;
+    ray.set(o, d);
+    return ray.intersectObject(probe, false)[0]?.point ?? null;
+  };
+  const surf = {
+    top: (x, z) => hitP(V3(x, 20, z), V3(0, -1, 0))?.y ?? null,
+    side: (x, y, s) => hitP(V3(x, y, s * 20), V3(0, 0, -s))?.z ?? null,
+    front: (y, z) => hitP(V3(30, y, z), V3(-1, 0, 0))?.x ?? null,
+    rear: (y, z) => hitP(V3(-30, y, z), V3(1, 0, 0))?.x ?? null,
+  };
   if (!casemate) {
     yaw.position.set(-lay.L / 2 + lay.L * T.at, lay.Hh, 0);
     const outline = turretOutline(T.style, Lt, W);
@@ -825,35 +838,44 @@ function buildTurret(spec, lay, M, out) {
     yaw.add(shell);
     // Turret ring collar.
     yaw.add(mesh(cyl(W * 0.42, W * 0.44, 0.08, "y", 40).translate(-0.05, 0.0, 0), M.paintPlain, () => ({ name: "Turret ring", t: T.side })));
-    frontX = outline.reduce((m, [x]) => Math.max(m, x), -9) - fs * Ht * 0.5 - 0.02;
+    probe = new THREE.Mesh(geo);
+    probe.updateMatrixWorld(true);
     gunY = Ht * 0.48;
-    if (T.style === "horseshoe" || T.style === "box") {
-      // Thick front plate across the face.
-      yaw.add(mesh(box(0.1, Ht * 0.98, W * 0.88, frontX - 0.02, Ht * 0.49, 0), paint, () => ({ name: "Turret front", t: T.front })));
-    }
+    frontX = surf.front(gunY, 0) ?? outline.reduce((m, [x]) => Math.max(m, x), -9) - fs * Ht * 0.5;
+  } else {
+    // Casemate: the gun comes out of the hull's front plate.
+    frontX = lay.frontX(gunY);
   }
 
-  // Mantlet + gun on an elevation pivot.
+  // Mantlet + gun on an elevation pivot, sitting on the real front face.
   const k = Math.min(1.6, Math.max(0.55, Gn.caliber / 88));
   const pivot = new THREE.Group();
   pivot.name = "gun-pivot";
-  pivot.position.set(frontX, gunY, casemate ? 0 : 0.0);
+  pivot.position.set(frontX, gunY, 0);
   (casemate ? out.hull : yaw).add(pivot);
   const mArmor = () => ({ name: "Gun mantlet", t: Gn.mantletArmor });
+  const mW = Math.min(W * (Gn.mantlet === "box" ? 0.72 : 0.5), (Gn.mantlet === "box" ? 1.5 : 1.05) * k);
+  const mH = Math.min(Ht * 0.86, (Gn.mantlet === "slab" ? 0.55 : 0.68) * k);
+  let mantFront;
   if (Gn.mantlet === "box") {
-    pivot.add(mesh(rbox(0.38 * k, Math.min(Ht * 0.85, 0.72 * k), Math.min(W * 0.7, 1.5 * k), 0.06, 0.14 * k, 0, 0), paint, mArmor));
+    pivot.add(mesh(rbox(0.36 * k, mH, mW, 0.06, 0.08 * k, 0, 0), paint, mArmor));
+    mantFront = 0.26 * k;
   } else if (Gn.mantlet === "saukopf") {
-    const g = new THREE.CylinderGeometry(0.34 * k, 0.34 * k, Math.min(W * 0.55, 1.1 * k), 40, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(-Math.PI / 2);
-    pivot.add(mesh(g.translate(0.02, 0, 0), paint, mArmor));
+    // Rounded "pig's head": a half-buried cylinder across the turret face.
+    pivot.add(mesh(cyl(mH / 2, mH / 2, mW, "z", 40), M.paintCast, mArmor));
+    pivot.add(mesh(rbox(0.12, mH * 0.95, mW * 1.02, 0.02, -0.04, 0, 0), M.paintCast, mArmor));
+    mantFront = mH / 2;
   } else if (Gn.mantlet === "cast") {
-    pivot.add(mesh(new THREE.SphereGeometry(0.36 * k, 32, 20).scale(0.8, 0.85, 1.25).translate(0.1 * k, 0, 0), paint, mArmor));
+    pivot.add(mesh(new THREE.SphereGeometry(0.34 * k, 36, 24).scale(0.85, mH / (0.68 * k), mW / (0.68 * k)).translate(0.04 * k, 0, 0), M.paintCast, mArmor));
+    mantFront = 0.33 * k;
   } else {
-    pivot.add(mesh(rbox(0.3 * k, 0.55 * k, Math.min(W * 0.4, 0.9 * k), 0.03, 0.12 * k, 0, 0), paint, mArmor));
+    pivot.add(mesh(rbox(0.3 * k, mH, mW, 0.03, 0.1 * k, 0, 0), paint, mArmor));
+    pivot.add(mesh(rbox(0.12 * k, mH * 0.75, mW * 0.7, 0.02, 0.28 * k, 0, 0), paint, mArmor));
+    mantFront = 0.34 * k;
   }
   // Sight apertures and the coaxial MG.
-  pivot.add(mesh(cyl(0.032, 0.032, 0.06, "x", 12).translate(0.3 * k, 0.12 * k, 0.32 * k), M.black));
-  pivot.add(mesh(cyl(0.032, 0.032, 0.06, "x", 12).translate(0.3 * k, 0.12 * k, 0.42 * k), M.black));
-  pivot.add(mesh(latheX([[0.03, 0], [0.03, 0.12], [0.016, 0.12], [0.016, 0.3]], 10).translate(0.28 * k, 0.04, -0.38 * k), M.gunmetal));
+  for (const z of [mW * 0.28, mW * 0.37]) pivot.add(mesh(cyl(0.03, 0.03, 0.08, "x", 12).translate(mantFront - 0.02, mH * 0.18, z), M.black));
+  pivot.add(mesh(latheX([[0.03, 0], [0.03, 0.12], [0.016, 0.12], [0.016, 0.3]], 10).translate(mantFront - 0.06, mH * 0.05, -mW * 0.33), M.gunmetal));
 
   const recoil = new THREE.Group();
   recoil.name = "barrel";
@@ -862,7 +884,7 @@ function buildTurret(spec, lay, M, out) {
   const len = cal * Gn.length;
   const rb = cal * 1.45;
   const rm = cal * 0.95;
-  const start = 0.2 * k;
+  const start = mantFront - 0.05;
   const prof = [[0.001, 0], [rb * 1.1, 0], [rb * 1.1, 0.25 * k], [rb, 0.3 * k], [rb * 0.95, len * 0.3], [rm * 1.05, len * 0.65], [rm, len], [cal * 0.5, len], [cal * 0.5, len + 0.01]];
   recoil.add(mesh(latheX(prof, 32).translate(start, 0, 0), M.paintPlain, () => ({ name: "Gun barrel", t: 30 })));
   if (Gn.evacuator) recoil.add(mesh(latheX([[rm, 0], [rm * 1.7, 0.08], [rm * 1.75, len * 0.1], [rm * 1.6, len * 0.13], [rm, len * 0.15]], 28).translate(start + len * 0.55, 0, 0), M.paintPlain));
@@ -891,62 +913,113 @@ function buildTurret(spec, lay, M, out) {
   out.turretShell = shell;
   if (casemate) return yaw;
 
+  // Everything below sits on the actual turret surface (curved turrets too).
+  const topY = (x, z, fallback = Ht) => surf.top(x, z) ?? fallback;
+  const sideZ = (x, y, s, fallback) => surf.side(x, y, s) ?? fallback;
+  const rearX = surf.rear(Ht * 0.45, 0) ?? turretOutline(T.style, Lt, W).reduce((m, [x]) => Math.min(m, x), 9);
+
   // Commander's cupola.
-  const cupX = -Lt * 0.25;
-  const cupZ = W * 0.24;
-  const top = Ht;
+  const cupX = -Lt * 0.22;
+  const cupZ = W * 0.22;
   if (T.cupola !== "none") {
     const cup = new THREE.Group();
-    cup.position.set(cupX, top - (T.style === "cast" ? 0.06 : 0), cupZ);
+    // Seat it a little into the roof so it never floats on a sloped/domed top.
+    cup.position.set(cupX, topY(cupX, cupZ) - 0.035, cupZ);
     if (T.cupola === "modern") {
-      cup.add(mesh(rbox(0.5, 0.35, 0.4, 0.05, 0, 0.17, 0), M.paintPlain));
-      cup.add(mesh(box(0.02, 0.18, 0.3, 0.26, 0.2, 0), M.visor));
+      cup.add(mesh(rbox(0.5, 0.38, 0.42, 0.05, 0, 0.17, 0), M.paintPlain));
+      cup.add(mesh(box(0.02, 0.18, 0.3, 0.26, 0.22, 0), M.visor));
+      cup.add(mesh(cyl(0.05, 0.05, 0.25, "y", 12).translate(-0.12, 0.45, 0.1), M.dark));
     } else {
-      cup.add(mesh(cyl(0.34, 0.36, 0.26, "y", 40).translate(0, 0.13, 0), M.paintPlain, () => ({ name: "Cupola", t: T.side })));
+      cup.add(mesh(cyl(0.34, 0.37, 0.28, "y", 40).translate(0, 0.14, 0), M.paintCastPlain, () => ({ name: "Cupola", t: T.side })));
       if (T.cupola === "blocks" || T.cupola === "mg") {
         for (let i = 0; i < 7; i++) {
           const a = (i / 7) * Math.PI * 2;
-          cup.add(mesh(box(0.035, 0.07, 0.15).rotateY(-a).translate(Math.cos(a) * 0.35, 0.15, Math.sin(a) * 0.35), M.visor));
+          cup.add(mesh(box(0.035, 0.07, 0.15).rotateY(-a).translate(Math.cos(a) * 0.35, 0.17, Math.sin(a) * 0.35), M.visor));
+          cup.add(mesh(box(0.06, 0.02, 0.17).rotateY(-a).translate(Math.cos(a) * 0.36, 0.22, Math.sin(a) * 0.36), M.paintPlain));
         }
       }
-      cup.add(mesh(cyl(0.3, 0.32, 0.05, "y", 40).translate(0, 0.29, 0), M.paintPlain));
-      cup.add(mesh(cyl(0.02, 0.02, 0.22, "z", 8).translate(-0.27, 0.3, 0), M.dark));
+      const lid = hatch(M, { r: 0.29, mat: M.paintPlain });
+      lid.position.y = 0.28;
+      cup.add(lid);
       if (T.cupola === "mg") {
-        cup.add(mesh(new THREE.TorusGeometry(0.36, 0.02, 6, 32).rotateX(Math.PI / 2).translate(0, 0.34, 0), M.dark));
+        cup.add(mesh(new THREE.TorusGeometry(0.37, 0.02, 6, 32).rotateX(Math.PI / 2).translate(0, 0.36, 0), M.dark));
         const mg = new THREE.Group();
         mg.add(mesh(rbox(0.3, 0.12, 0.1, 0.02, 0.1, 0, 0), M.gunmetal));
         mg.add(mesh(latheX([[0.03, 0], [0.03, 0.5], [0.02, 0.5], [0.02, 0.85]], 10).translate(0.2, 0, 0), M.gunmetal));
-        mg.add(mesh(box(0.1, 0.12, 0.06, 0.05, -0.1, 0), M.dark));
-        mg.position.set(0.2, 0.5, 0);
+        mg.add(mesh(rbox(0.14, 0.12, 0.08, 0.01, 0.05, -0.1, 0.08), M.olive));
+        mg.position.set(0.22, 0.52, 0);
         cup.add(mg);
-        cup.add(mesh(cyl(0.02, 0.02, 0.2, "y", 8).translate(0.25, 0.42, 0), M.dark));
+        cup.add(mesh(cyl(0.02, 0.02, 0.2, "y", 8).translate(0.25, 0.43, 0), M.dark));
       }
     }
     yaw.add(cup);
   }
-  // Loader's hatch, ventilator, pistol ports and vision slits.
-  yaw.add(mesh(cyl(0.27, 0.27, 0.04, "y", 30).translate(-Lt * 0.1, top + 0.02, -W * 0.22), M.paintPlain));
-  yaw.add(mesh(new THREE.SphereGeometry(0.1, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2).translate(Lt * 0.18, top - 0.01, -W * 0.05), M.paintPlain));
+  // Loader's hatch, ventilator, periscopes.
+  {
+    const hx = -Lt * 0.08;
+    const hz = -W * 0.22;
+    const h = hatch(M, { r: 0.26, periscope: true });
+    h.position.set(hx, topY(hx, hz) - 0.02, hz);
+    yaw.add(h);
+    const vx = Lt * 0.2;
+    yaw.add(mesh(new THREE.SphereGeometry(0.11, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2).translate(vx, topY(vx, -W * 0.05) - 0.02, -W * 0.05), M.paintCastPlain));
+    for (const z of [W * 0.05, -W * 0.38]) {
+      const px = Lt * 0.05;
+      const p = periscope(M);
+      p.position.set(px, topY(px, z) - 0.02, z);
+      yaw.add(p);
+    }
+  }
   if (T.style !== "flat" && T.style !== "wedge") {
+    // Pistol ports and vision slits on the sides.
     for (const s of [-1, 1]) {
-      const zz = s * W * (T.style === "sloped" ? 0.4 : T.style === "cast" || T.style === "round" ? 0.44 : 0.5);
-      yaw.add(mesh(cyl(0.05, 0.05, 0.05, "z", 16).translate(-Lt * 0.3, Ht * 0.45, zz), M.dark));
-      yaw.add(mesh(box(0.2, 0.03, 0.04, Lt * 0.15, Ht * 0.55, zz * 0.97), M.dark));
+      const ppx = -Lt * 0.3;
+      const z1 = sideZ(ppx, Ht * 0.45, s, s * W * 0.45);
+      const pp = pistolPort(M, paint);
+      pp.position.set(ppx, Ht * 0.45, z1);
+      if (s < 0) pp.rotation.y = Math.PI;
+      yaw.add(pp);
+      const vx = Lt * 0.12;
+      const z2 = sideZ(vx, Ht * 0.55, s, s * W * 0.45);
+      const vs = visionSlit(M, 0.22, paint);
+      vs.rotation.y = -s * Math.PI / 2;
+      vs.position.set(vx, Ht * 0.55, z2);
+      yaw.add(vs);
     }
   } else {
     // Modern sights and the gunner's primary sight box.
-    yaw.add(mesh(rbox(0.5, 0.32, 0.35, 0.04, Lt * 0.15, top + 0.16, -W * 0.28), M.paintPlain));
-    yaw.add(mesh(box(0.02, 0.2, 0.28, Lt * 0.15 + 0.26, top + 0.18, -W * 0.28), M.visor));
-    for (const s of [-1, 1]) yaw.add(mesh(rbox(Lt * 0.5, 0.06, 0.12, 0.02, -Lt * 0.1, top + 0.03, s * W * 0.42), M.dark));
+    const sx = Lt * 0.15;
+    const sz = -W * 0.28;
+    const sy = topY(sx, sz);
+    yaw.add(mesh(rbox(0.5, 0.34, 0.36, 0.04, sx, sy + 0.16, sz), M.paintPlain));
+    yaw.add(mesh(box(0.02, 0.2, 0.28, sx + 0.26, sy + 0.18, sz), M.visor));
+    for (const s of [-1, 1]) yaw.add(mesh(rbox(Lt * 0.5, 0.06, 0.12, 0.02, -Lt * 0.1, topY(-Lt * 0.1, s * W * 0.4) + 0.03, s * W * 0.4), M.dark));
+    // Blow-out panel seams on the roof.
+    yaw.add(merged([box(Lt * 0.3, 0.012, 0.01, -Lt * 0.3, Ht + 0.005, W * 0.2), box(Lt * 0.3, 0.012, 0.01, -Lt * 0.3, Ht + 0.005, -W * 0.2), box(0.01, 0.012, W * 0.4, -Lt * 0.15, Ht + 0.005, 0)], M.black));
   }
-  // Lifting eyes.
-  for (const [x, z] of [[Lt * 0.25, W * 0.35], [Lt * 0.25, -W * 0.35], [-Lt * 0.4, W * 0.3], [-Lt * 0.4, -W * 0.3]]) yaw.add(mesh(new THREE.TorusGeometry(0.045, 0.014, 6, 12).translate(x, top + 0.04, z), M.steel));
+  // Lifting eyes on the roof edge.
+  for (const [x, z] of [[Lt * 0.22, W * 0.32], [Lt * 0.22, -W * 0.32], [-Lt * 0.35, W * 0.28], [-Lt * 0.35, -W * 0.28]]) {
+    const hk = liftingHook(M, M.paintPlain, 0.045);
+    hk.position.set(x, topY(x, z) - 0.005, z);
+    yaw.add(hk);
+  }
+  // Grab rails around the turret sides.
+  for (const s of [-1, 1]) {
+    const y = Ht * 0.78;
+    const za = sideZ(-Lt * 0.25, y, s, s * W * 0.45);
+    const zb = sideZ(Lt * 0.05, y, s, s * W * 0.45);
+    yaw.add(grabHandle(V3(-Lt * 0.25, y, za), V3(Lt * 0.05, y, zb), V3(0, 0, s), M, 0.05, 0.01));
+  }
 
-  // Smoke dischargers.
+  // Smoke dischargers, bolted to the sides.
   for (const s of [-1, 1]) {
     for (let i = 0; i < T.smoke; i++) {
+      const x = Lt * 0.3 - i * 0.11;
+      const y = Ht * 0.72;
+      const z = sideZ(x, y, s, s * W * 0.47);
       const tubeG = cyl(0.045, 0.045, 0.26, "y", 14).rotateZ(-0.7).rotateX(s * 0.5);
-      yaw.add(mesh(tubeG.translate(Lt * 0.3 - i * 0.11, Ht * 0.78, s * (W * 0.47 + 0.02)), M.paintPlain));
+      yaw.add(mesh(tubeG.translate(x, y + 0.06, z + s * 0.06), M.paintPlain));
+      yaw.add(mesh(box(0.08, 0.06, 0.08, x, y, z + s * 0.03), M.paintPlain));
     }
   }
   // Spare track links on the turret sides.
@@ -954,29 +1027,35 @@ function buildTurret(spec, lay, M, out) {
     const link = trackLinkGeometry(0.13, 0.5, false).rotateX(Math.PI / 2).rotateZ(Math.PI / 2);
     for (const s of [-1, 1]) {
       for (let i = 0; i < T.spareLinks; i++) {
+        const x = -Lt * 0.05 - i * 0.135;
+        const z = sideZ(x, Ht * 0.32, s, s * W * 0.5);
         const l = mesh(link.clone(), M.trackSteel);
-        const zz = s * W * (T.style === "sloped" ? 0.43 : 0.5);
-        l.position.set(Lt * 0.25 - i * 0.135, Ht * 0.45, zz + s * 0.03);
+        l.position.set(x, Ht * 0.32, z + s * 0.045);
         if (s < 0) l.rotation.y = Math.PI;
         yaw.add(l);
       }
+      yaw.add(mesh(box(T.spareLinks * 0.135 + 0.05, 0.03, 0.03, -Lt * 0.05 - ((T.spareLinks - 1) * 0.135) / 2, Ht * 0.6, sideZ(-Lt * 0.1, Ht * 0.6, s, s * W * 0.5) + s * 0.02), M.dark));
     }
   }
   // Rear stowage.
-  const rearX = turretOutline(T.style, Lt, W).reduce((m, [x]) => Math.min(m, x), 9);
   if (T.bustle === "bin") {
-    yaw.add(mesh(rbox(0.42, 0.42, W * 0.6, 0.04, rearX - 0.18, Ht * 0.45, 0), M.paintPlain));
-    yaw.add(mesh(box(0.45, 0.03, W * 0.61, rearX - 0.18, Ht * 0.67, 0), M.paintPlain));
+    yaw.add(mesh(rbox(0.46, 0.42, W * 0.6, 0.04, rearX - 0.2, Ht * 0.45, 0), M.paintPlain));
+    yaw.add(mesh(box(0.48, 0.03, W * 0.61, rearX - 0.2, Ht * 0.67, 0), M.paintPlain));
+    yaw.add(merged(bolts([[rearX - 0.43, Ht * 0.5, -W * 0.15], [rearX - 0.43, Ht * 0.5, W * 0.15]], 0.02, "x"), M.dark));
   } else if (T.bustle === "basket") {
     const rails = [];
     for (const y of [Ht * 0.3, Ht * 0.7]) rails.push(tube([[rearX + 0.1, y, -W * 0.45], [rearX - 0.35, y, -W * 0.4], [rearX - 0.4, y, 0], [rearX - 0.35, y, W * 0.4], [rearX + 0.1, y, W * 0.45]], 0.015, 40, 6));
     yaw.add(merged(rails, M.dark));
     yaw.add(mesh(cyl(0.16, 0.16, W * 0.6, "z", 14).translate(rearX - 0.18, Ht * 0.45, 0), M.canvas));
   } else if (T.bustle === "modern") {
-    yaw.add(mesh(rbox(0.7, Ht * 0.8, W * 0.85, 0.05, rearX - 0.3, Ht * 0.45, 0), paint, () => ({ name: "Turret bustle", t: T.rear })));
+    yaw.add(mesh(rbox(0.75, Ht * 0.8, W * 0.85, 0.05, rearX - 0.3, Ht * 0.45, 0), paint, () => ({ name: "Turret bustle", t: T.rear })));
   }
   // Turret antennas.
-  if (spec.details.antennas > 0) addAntenna(yaw, M, V3(rearX + 0.25, top, -W * 0.3), 2.4, out);
+  if (spec.details.antennas > 0) {
+    const ax = rearX + 0.3;
+    const az = -W * 0.3;
+    addAntenna(yaw, M, V3(ax, topY(ax, az) - 0.02, az), 2.4, out);
+  }
   return yaw;
 }
 
@@ -1096,8 +1175,8 @@ function applyMarkings(v, lay, out, M) {
     if (style !== "none") {
       const onTurret = (style === "redstar" || style === "aura") && turretMeshes.length;
       const targets = onTurret ? turretMeshes : hullMeshes;
-      const x = onTurret ? out.turret.position.x - v.spec.turret.length * 0.1 : -lay.L * 0.05;
-      const y = onTurret ? out.turret.position.y + v.spec.turret.height * 0.5 : sideY;
+      const x = onTurret ? out.turret.position.x - v.spec.turret.length * 0.28 : -lay.L * 0.05;
+      const y = onTurret ? out.turret.position.y + v.spec.turret.height * 0.62 : sideY;
       const hit = hitOn(targets, V3(x, y, s * 6), V3(0, 0, -s));
       const size = onTurret ? v.spec.turret.height * 0.6 : Math.min(0.55, lay.Hh - lay.ys);
       if (hit) projectDecal(hit.object ?? targets[0], insigniaCanvas(style), hit.point, hit.normal, V3(size, size, 0.4), onTurret ? out.turret : out.hull);
@@ -1105,8 +1184,8 @@ function applyMarkings(v, lay, out, M) {
     // Number on the turret sides.
     if (mk.number && turretMeshes.length) {
       const { canvas, aspect } = textCanvas(mk.number, { color: mk.numberColor, outline: mk.outline, font: mk.font });
-      const hit = hitOn(turretMeshes, V3(out.turret.position.x + v.spec.turret.length * 0.12, out.turret.position.y + v.spec.turret.height * 0.5, s * 6), V3(0, 0, -s));
-      const h = v.spec.turret.height * 0.42;
+      const hit = hitOn(turretMeshes, V3(out.turret.position.x + v.spec.turret.length * 0.18, out.turret.position.y + v.spec.turret.height * 0.62, s * 6), V3(0, 0, -s));
+      const h = v.spec.turret.height * 0.36;
       if (hit) projectDecal(turretMeshes[0], canvas, hit.point, hit.normal, V3(h * aspect, h, 0.6), out.turret, { roll: 0 });
     }
     if (mk.slogan) {

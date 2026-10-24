@@ -8,7 +8,7 @@ function rngFrom(seed) {
 }
 
 /** Paint the camouflage pattern into a square canvas that tiles. */
-export function camoCanvas(paint, size = 1024) {
+export function camoCanvas(paint, size = 512) {
   const cv = document.createElement("canvas");
   cv.width = cv.height = size;
   const g = cv.getContext("2d");
@@ -42,7 +42,6 @@ export function camoCanvas(paint, size = 1024) {
           j ? g.quadraticCurveTo(x, y, (x + nx) / 2, (y + ny) / 2) : g.moveTo((x + nx) / 2, (y + ny) / 2);
         });
         g.closePath();
-        g.filter = `blur(${blur}px)`;
         g.fillStyle = color;
         g.fill();
         g.restore();
@@ -130,16 +129,42 @@ export function camoCanvas(paint, size = 1024) {
       break;
     default:
   }
-  // Fine paint grain.
-  const img = g.getImageData(0, 0, size, size);
+  // One soft blur pass gives every blob a sprayed edge (much faster than blurring each).
+  if (["twotone", "ambush", "desert", "winter"].includes(paint.camo)) {
+    const tmp = document.createElement("canvas");
+    tmp.width = tmp.height = size;
+    const t = tmp.getContext("2d");
+    t.drawImage(cv, 0, 0);
+    g.save();
+    g.filter = "blur(2.5px)";
+    // Draw the tile 3×3 so the blur wraps around the edges too.
+    for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) g.drawImage(tmp, ox, oy);
+    g.restore();
+  }
+  // Fine paint grain from a small cached noise tile (no per-pixel work on the big texture).
+  g.save();
+  g.globalAlpha = 0.18;
+  g.globalCompositeOperation = "overlay";
+  g.fillStyle = g.createPattern(grainTile(), "repeat");
+  g.fillRect(0, 0, size, size);
+  g.restore();
+  return cv;
+}
+
+let grain = null;
+function grainTile() {
+  if (grain) return grain;
+  grain = document.createElement("canvas");
+  grain.width = grain.height = 96;
+  const g = grain.getContext("2d");
+  const img = g.createImageData(96, 96);
   for (let i = 0; i < img.data.length; i += 4) {
-    const n = (rnd() - 0.5) * 7;
-    img.data[i] += n;
-    img.data[i + 1] += n;
-    img.data[i + 2] += n;
+    const v = 128 + (Math.random() - 0.5) * 90;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+    img.data[i + 3] = 255;
   }
   g.putImageData(img, 0, 0);
-  return cv;
+  return grain;
 }
 
 let zimTex = null;
@@ -294,7 +319,7 @@ export function paintMaterial(paint, { zimmerit = false, groundY = 0, metal = fa
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNorm;")
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWNorm = normalize(mat3(modelMatrix) * objectNormal);");
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\n#ifdef USE_INSTANCING\nvWPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\nvWNorm = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * objectNormal);\n#else\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWNorm = normalize(mat3(modelMatrix) * objectNormal);\n#endif");
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>\n${PAINT_GLSL_HEAD}`)
       .replace("#include <map_fragment>", PAINT_GLSL_BODY)

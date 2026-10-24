@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Box, Eye, Pause, Play, Redo2, Save, Shield, Trash2, Undo2, X } from "lucide-react";
+import { ArrowLeft, Box, Dices, Eye, Pause, Play, Redo2, Save, Shield, Trash2, Undo2, X } from "lucide-react";
 import { useHistory } from "../../hooks/useHistory.js";
 import { ARMOR_STOPS } from "../../vehicles3d/decals.js";
 import { PRESETS3D } from "../../vehicles3d/presets.js";
-import { fieldsFor, getPath, NATIONS, PAINTS, setPath, vehicleId } from "../../vehicles3d/spec.js";
+import { fieldsFor, getPath, NATIONS, PAINTS, randomVehicle, setPath, vehicleId } from "../../vehicles3d/spec.js";
 import { computeStats } from "../../vehicles3d/stats.js";
 import { ColorInput, Section, Segmented, Select, Slider, TextField, Toggle } from "../controls.jsx";
 import { HangarIcon, TankIcon, XrayIcon } from "../icons.jsx";
@@ -110,6 +110,9 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify }) 
           <Redo2 size={14} />
         </button>
         <span className="flex-1" />
+        <button type="button" onClick={(e) => set(randomVehicle(e.shiftKey))} className="chip-btn" title="Random tank (Shift+click for a cursed one)" data-testid="random-tank">
+          <Dices size={14} /> Random
+        </button>
         <button type="button" onClick={() => setGallery("presets")} className="chip-btn">
           <Box size={14} /> Presets
         </button>
