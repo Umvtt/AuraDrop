@@ -119,6 +119,7 @@ export function useEditor(initial) {
         return { ...pg, elements };
       });
       if (copies.length) setSelectedIds(copies.map((c) => c.id));
+      return copies.map((c) => c.id);
     };
 
     /** dir: +1 forward, -1 backward, "front", "back". Works on several. */

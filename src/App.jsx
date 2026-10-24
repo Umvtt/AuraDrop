@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Command, Grid3x3, Magnet, Pause, Play, Ruler, Wrench } from "lucide-react";
+import { Section, Segmented, Slider, Toggle } from "./components/controls.jsx";
 import { BottomBar } from "./components/editor/BottomBar.jsx";
 import { Canvas } from "./components/editor/Canvas.jsx";
 import { Inspector } from "./components/editor/Inspector.jsx";
@@ -7,7 +9,14 @@ import { Preview } from "./components/Preview.jsx";
 import { StartScreen } from "./components/StartScreen.jsx";
 import { TitleBar } from "./components/TitleBar.jsx";
 import { UpdateGate } from "./components/UpdateGate.jsx";
+import { CommandPalette, ContextMenu, ShortcutsDialog } from "./components/Menus.jsx";
+import { Gallery, Workshop } from "./components/workshop/Workshop.jsx";
 import { useEditor } from "./hooks/useEditor.js";
+import { useHangar } from "./hooks/useHangar.js";
+import { statCard, vehicleElement } from "./lib/vehicleCard.js";
+import { PRESETS3D } from "./vehicles3d/presets.js";
+import { createVehicle, vehicleId } from "./vehicles3d/spec.js";
+import { buildCommands, contextItems } from "./lib/commands.js";
 import { buildWebPage } from "./lib/exportHtml.js";
 import * as native from "./lib/native.js";
 import {
@@ -17,11 +26,14 @@ import {
   FILE_EXTENSION,
   makeFromTemplate,
   parseProjectFile,
+  registerVehicleTemplates,
   serializeProject,
 } from "./lib/project.js";
 import { renderPng } from "./lib/renderPng.js";
 
 const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
+
+registerVehicleTemplates(statCard, [PRESETS3D.find((v) => v.preset === "tiger1"), PRESETS3D.find((v) => v.preset === "sherman")]);
 
 function readPref(key, fallback) {
   try {
@@ -54,8 +66,20 @@ function imageSize(data) {
 
 export default function App() {
   const editor = useEditor(createProject());
-  const { project, page, pageIndex, selected, selectedId } = editor;
-  const [mode, setMode] = useState("start"); // start | edit | preview
+  const { project, page, pageIndex, selected, selectedId, selection, selectedIds } = editor;
+  const [mode, setMode] = useState("start"); // start | edit | preview | workshop
+  const hangar = useHangar();
+  const [workshop, setWorkshop] = useState(null); // { vehicle, context: insert | edit | browse, targetId, back }
+  const [vehiclePicker, setVehiclePicker] = useState(false);
+  const [menu, setMenu] = useState(null); // context menu {x, y, id}
+  const [palette, setPalette] = useState(false);
+  const [shortcuts, setShortcuts] = useState(false);
+  const [grid, setGridState] = useState(() => readPref("grid", { show: false, snap: false, size: 40 }));
+  const [rulers, setRulersState] = useState(() => readPref("rulers", true));
+  const setGrid = (g) => setGridState((cur) => (writePref("grid", typeof g === "function" ? g(cur) : g), typeof g === "function" ? g(cur) : g));
+  const setRulers = (r) => setRulersState((cur) => (writePref("rulers", typeof r === "function" ? r(cur) : r), typeof r === "function" ? r(cur) : r));
+  const [recent, setRecent] = useState([]);
+  const [recovery, setRecovery] = useState(null);
   const [previewPage, setPreviewPage] = useState(0);
   const [animate, setAnimate] = useState(false);
   const canvasRef = useRef(null);
@@ -111,6 +135,30 @@ export default function App() {
     };
   }, []);
 
+  // --- recent files & crash recovery ----------------------------------------
+  useEffect(() => {
+    native.storeRead("recent").then((r) => Array.isArray(r) && setRecent(r.filter((x) => typeof x?.path === "string").slice(0, 8)));
+    native.storeRead("recovery").then((r) => r?.project && setRecovery(r));
+  }, []);
+  const remember = useCallback((path) => {
+    if (!path || !native.isTauri) return;
+    setRecent((cur) => {
+      const next = [{ path, name: native.baseName(path), at: Date.now() }, ...cur.filter((x) => x.path !== path)].slice(0, 8);
+      native.storeWrite("recent", next).catch(() => {});
+      return next;
+    });
+  }, []);
+  // Autosave a recovery copy every 20 s while there are unsaved changes.
+  const autosaveRef = useRef();
+  autosaveRef.current = { project, dirty, fileName, path: null };
+  useEffect(() => {
+    const t = setInterval(() => {
+      const a = autosaveRef.current;
+      if (a.dirty) native.storeWrite("recovery", { savedAt: Date.now(), name: a.fileName, project: a.project }).catch(() => {});
+    }, 20000);
+    return () => clearInterval(t);
+  }, []);
+
   // --- files -----------------------------------------------------------------
   const confirmDiscard = useCallback(async () => {
     if (!dirtyRef.current) return true;
@@ -123,10 +171,11 @@ export default function App() {
       editor.load(p);
       savedRef.current = p;
       setFile({ path, name });
+      remember(path);
       setPreviewPage(0);
       setMode(preview ? "preview" : "edit");
     },
-    [editor],
+    [editor, remember],
   );
 
   const openText = useCallback(
@@ -164,6 +213,7 @@ export default function App() {
 
   const newProject = useCallback(async () => {
     if (!(await confirmDiscard())) return;
+    native.storeRemove("recovery");
     setMode("start");
   }, [confirmDiscard]);
 
@@ -189,12 +239,15 @@ export default function App() {
         }
         savedRef.current = snapshot;
         setFile({ path: native.isTauri ? path : null, name: native.baseName(path) });
+        remember(native.isTauri ? path : null);
+        native.storeRemove("recovery");
+        setRecovery(null);
         notify(`Saved ${native.baseName(path)}`, "success");
       } catch (err) {
         notify(`Couldn't save: ${err.message ?? err}`, "error");
       }
     },
-    [project, file.path, fileName, notify],
+    [project, file.path, fileName, notify, remember],
   );
 
   const [busy, setBusy] = useState(null);
@@ -334,6 +387,9 @@ export default function App() {
         case "glass":
           editor.addElement(what);
           break;
+        case "vehicle":
+          setVehiclePicker(true);
+          break;
         default: {
           const names = { rect: "Box", ellipse: "Circle", triangle: "Triangle", star: "Star", heart: "Heart", bubble: "Speech bubble", arrow: "Arrow" };
           editor.addElement("shape", { shape: what, name: names[what] ?? "Shape" });
@@ -433,42 +489,130 @@ export default function App() {
     return () => void off.then((f) => f());
   }, []);
 
+  // --- clipboard & vehicles ---------------------------------------------------
+  const copy = useCallback(
+    (cut = false) => {
+      if (!selection.length) return;
+      const assets = {};
+      for (const el of selection) {
+        if (el.asset && project.assets[el.asset]) assets[el.asset] = project.assets[el.asset];
+        el.actions.forEach((a) => a.asset && project.assets[a.asset] && (assets[a.asset] = project.assets[a.asset]));
+      }
+      clipboard.current = { els: structuredClone(selection), assets };
+      if (cut) editor.removeElements(selection.map((e) => e.id));
+    },
+    [selection, project.assets, editor],
+  );
+  const paste = useCallback(() => {
+    const c = clipboard.current;
+    if (!c) return;
+    const regroup = new Map();
+    const els = c.els.map((el) => {
+      const copy = duplicateElement(el, 24);
+      copy.name = el.name;
+      if (el.group) {
+        if (!regroup.has(el.group)) regroup.set(el.group, `g${Date.now().toString(36)}${regroup.size}`);
+        copy.group = regroup.get(el.group);
+      }
+      return copy;
+    });
+    editor.setProject((p) => editor.pageUpdater((pg) => ({ ...pg, elements: [...pg.elements, ...els] }))({ ...p, assets: { ...c.assets, ...p.assets } }), { step: true });
+    editor.select(els.map((e) => e.id), { deep: true });
+  }, [editor]);
+
+  const openWorkshop = useCallback((vehicle, context = "browse", targetId = null) => {
+    setWorkshop({ vehicle: structuredClone(vehicle ?? createVehicle("tank", { name: "My tank" })), context, targetId, back: mode === "workshop" ? "start" : mode });
+    setMode("workshop");
+  }, [mode]);
+
+  const insertVehicle = useCallback(
+    (vehicle, card = false) => {
+      const v = { ...structuredClone(vehicle), id: vehicle.preset ? vehicleId() : vehicle.id };
+      if (card) editor.insertElements(statCard(v, project.canvas));
+      else editor.insertElement(vehicleElement(v, project.canvas));
+    },
+    [editor, project.canvas],
+  );
+
+  const finishWorkshop = useCallback(
+    (vehicle) => {
+      const w = workshop;
+      if (w.context === "edit" && w.targetId) {
+        editor.updateElement(w.targetId, (e) => ({ ...e, vehicle, name: vehicle.name }), { step: true });
+        setMode("edit");
+      } else if (w.context === "insert") {
+        insertVehicle(vehicle);
+        setMode("edit");
+      } else {
+        // From the start screen: a new project with a stat card.
+        const p = makeFromTemplate("blank", "card");
+        p.name = vehicle.name;
+        p.pages[0].bg = { ...p.pages[0].bg, type: "gradient", colors: ["#1f2937", "#0b0c12"], angle: 160 };
+        p.pages[0].elements = statCard(vehicle, p.canvas);
+        loadProject(p, { preview: false });
+      }
+      setWorkshop(null);
+    },
+    [workshop, editor, insertVehicle, loadProject],
+  );
+
   // --- keyboard -----------------------------------------------------------------
   const keyRef = useRef();
-  keyRef.current = { mode, save, openDialog, newProject, editor, selected, project, previewPage, pageIndex, notify };
+  keyRef.current = { mode, save, openDialog, newProject, editor, selection, selected, copy, paste, exportPng, canvasRef, setGrid };
   useEffect(() => {
     const onKey = (e) => {
       const k = keyRef.current;
       const typing = e.target.closest?.("input, textarea, select, [contenteditable=true]");
       const key = e.key.toLowerCase();
+      const ctrl = e.ctrlKey || e.metaKey;
       const run = (fn) => {
         e.preventDefault();
         fn();
       };
+      if (k.mode === "workshop") return;
       if (e.key === "F5" && k.mode !== "start") return run(() => setMode((m) => (m === "edit" ? "preview" : "edit")));
-      if (e.ctrlKey || e.metaKey) {
+      if (ctrl && key === "k") return run(() => setPalette((p) => !p));
+      if (e.key === "F1" || (e.key === "?" && !typing)) return run(() => setShortcuts(true));
+      if (ctrl) {
         if (key === "s" && k.mode !== "start") return run(() => k.save({ saveAs: e.shiftKey }));
         if (key === "o") return run(k.openDialog);
         if (key === "n") return run(k.newProject);
       }
       if (k.mode !== "edit" || typing) return;
-      const sel = k.selected;
-      if (e.ctrlKey || e.metaKey) {
-        if (key === "z" && !e.shiftKey) return run(k.editor.undo);
-        if (key === "y" || (key === "z" && e.shiftKey)) return run(k.editor.redo);
-        if (key === "d" && sel) return run(() => k.editor.duplicateElement(sel.id));
-        if (key === "c" && sel) return run(() => (clipboard.current = structuredClone(sel)));
-        if (key === "v" && clipboard.current) return run(() => k.editor.insertElement(duplicateElement(clipboard.current, 24)));
+      const ids = k.selection.map((x) => x.id);
+      const ed = k.editor;
+      if (ctrl) {
+        if (key === "z" && !e.shiftKey) return run(ed.undo);
+        if (key === "y" || (key === "z" && e.shiftKey)) return run(ed.redo);
+        if (key === "a") return run(() => ed.select(ed.page.elements.map((x) => x.id), { deep: true }));
+        if (key === "e") return run(k.exportPng);
+        if (key === "'") return run(() => k.setGrid((g) => ({ ...g, show: !g.show })));
+        if (key === "0") return run(() => k.canvasRef.current?.zoomActual());
+        if (key === "=" || key === "+") return run(() => k.canvasRef.current?.zoomIn());
+        if (key === "-") return run(() => k.canvasRef.current?.zoomOut());
+        if (key === "v") return run(k.paste);
+        if (!ids.length) return;
+        if (key === "d") return run(() => ed.duplicateElements(ids));
+        if (key === "c") return run(() => k.copy());
+        if (key === "x") return run(() => k.copy(true));
+        if (key === "g") return run(() => (e.shiftKey ? ed.ungroup(ids) : ed.group(ids)));
+        if (key === "l") return run(() => ed.updateElements(ids, (x) => ({ ...x, locked: !k.selection.every((s) => s.locked) }), { step: true }));
+        if (key === "h") return run(() => ed.updateElements(ids, (x) => ({ ...x, hidden: !k.selection.every((s) => s.hidden) }), { step: true }));
+        if (e.key === "]") return run(() => ed.moveLayers(ids, "front"));
+        if (e.key === "[") return run(() => ed.moveLayers(ids, "back"));
         return;
       }
-      if (!sel) return;
-      if (e.key === "Delete" || e.key === "Backspace") return run(() => k.editor.removeElement(sel.id));
-      if (e.key === "Escape") return run(() => k.editor.select(null));
-      if (e.key === "]") return run(() => k.editor.moveLayer(sel.id, 1));
-      if (e.key === "[") return run(() => k.editor.moveLayer(sel.id, -1));
+      if (e.shiftKey && e.key === "!") return run(() => k.canvasRef.current?.zoomFit());
+      if (e.shiftKey && e.key === "@") return run(() => k.canvasRef.current?.zoomToSelection());
+      if (!ids.length) return;
+      if (e.key === "Delete" || e.key === "Backspace") return run(() => ed.removeElements(ids));
+      if (e.key === "Escape") return run(() => ed.select(null));
+      if (e.key === "Enter" && k.selected && ["text", "button", "sticker"].includes(k.selected.type)) return run(() => k.canvasRef.current?.startEditing(k.selected.id));
+      if (e.key === "]") return run(() => ed.moveLayers(ids, 1));
+      if (e.key === "[") return run(() => ed.moveLayers(ids, -1));
       const step = e.shiftKey ? 10 : 1;
       const nudge = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
-      if (nudge && !sel.locked) run(() => k.editor.updateElement(sel.id, { x: sel.x + nudge[0], y: sel.y + nudge[1] }));
+      if (nudge) run(() => ed.updateElements(ids, (x) => (x.locked ? x : { ...x, x: x.x + nudge[0], y: x.y + nudge[1] })));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -487,12 +631,19 @@ export default function App() {
     [editor],
   );
 
+  const app = { editor, project, page, selection, mode, setMode, grid, setGrid, rulers, setRulers, animate, setAnimate, canvasRef, copy, paste, save, openDialog, newProject, exportPng, exportHtml, onAdd, setShortcuts, setVehiclePicker, openWorkshop, notify };
+  const commands = buildCommands(app);
+
+  const vehiclePanel = (el, set) => (
+    <VehiclePanel el={el} set={set} onOpen={() => openWorkshop(el.vehicle, "edit", el.id)} onCard={() => editor.insertElements(statCard(el.vehicle, project.canvas))} />
+  );
+
   return (
     <div className="relative flex h-full flex-col">
       <TitleBar
         mode={mode}
-        fileName={mode === "start" ? "" : fileName}
-        dirty={dirty}
+        fileName={mode === "start" ? "" : mode === "workshop" ? "Vehicle Workshop" : fileName}
+        dirty={dirty && mode !== "workshop"}
         canUndo={editor.canUndo}
         canRedo={editor.canRedo}
         onUndo={editor.undo}
@@ -501,6 +652,7 @@ export default function App() {
         onOpen={openDialog}
         onSave={() => save()}
         onClose={closeWindow}
+        onPalette={() => setPalette(true)}
         onPreview={() => {
           setPreviewPage(pageIndex);
           setMode("preview");
@@ -515,7 +667,42 @@ export default function App() {
         }}
       />
 
-      {mode === "start" && <StartScreen onCreate={createFromTemplate} onOpen={openDialog} onClose={dirty || project.pages[0].elements.length ? () => setMode("edit") : null} />}
+      {mode === "start" && (
+        <StartScreen
+          onCreate={createFromTemplate}
+          onOpen={openDialog}
+          onOpenPath={openPath}
+          onWorkshop={() => openWorkshop(PRESETS3D[0], "browse")}
+          onNewVehicle={() => openWorkshop(createVehicle("tank", { name: "My tank" }), "browse")}
+          recent={recent}
+          recovery={recovery}
+          onRecover={() => {
+            loadProject(native.isTauri ? recovery.project : recovery.project, { preview: false });
+            setFile({ path: null, name: recovery.name });
+            savedRef.current = null;
+            setRecovery(null);
+          }}
+          onDismissRecovery={() => {
+            native.storeRemove("recovery");
+            setRecovery(null);
+          }}
+          onClose={dirty || project.pages[0].elements.length ? () => setMode("edit") : null}
+        />
+      )}
+
+      {mode === "workshop" && workshop && (
+        <Workshop
+          initial={workshop.vehicle}
+          context={workshop.context}
+          hangar={hangar}
+          notify={notify}
+          onDone={finishWorkshop}
+          onClose={() => {
+            setMode(workshop.back === "workshop" ? "start" : workshop.back);
+            setWorkshop(null);
+          }}
+        />
+      )}
 
       {mode === "preview" && (
         <Preview
@@ -532,15 +719,16 @@ export default function App() {
       {mode === "edit" && (
         <div className="flex min-h-0 flex-1 gap-2 px-2 pb-2">
           <LeftPanel
-            project={project}
             page={page}
-            selectedId={selectedId}
+            selectedIds={selectedIds}
             onAdd={onAdd}
             onAddSticker={(emoji) => editor.addElement("sticker", { emoji, name: `Sticker ${emoji}` })}
             onSelect={editor.select}
-            onToggle={(id, key) => editor.updateElement(id, (e) => ({ ...e, [key]: !e[key] }))}
-            onMove={editor.moveLayer}
-            onRename={(id, name) => editor.updateElement(id, { name })}
+            onToggle={(id, key) => editor.updateElement(id, (e) => ({ ...e, [key]: !e[key] }), { step: true })}
+            onReorder={editor.reorderLayers}
+            onRename={(id, name) => editor.updateElement(id, { name }, { step: true })}
+            onContextMenu={(m) => setMenu({ x: m.clientX, y: m.clientY, id: m.id })}
+            onUngroup={editor.ungroup}
           />
           <main className="flex min-w-0 flex-1 flex-col gap-2">
             <div className="glass-chrome relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl">
@@ -548,22 +736,19 @@ export default function App() {
                 ref={canvasRef}
                 project={project}
                 pageIndex={pageIndex}
-                selectedId={selectedId}
+                selectedIds={selectedIds}
                 onSelect={editor.select}
-                onChange={(id, patch) => editor.updateElement(id, patch)}
+                onUpdate={(ids, fn, opts) => editor.updateElements(ids, fn, opts)}
+                onDuplicate={(ids) => editor.duplicateElements(ids)}
                 onCommitText={commitText}
+                onContextMenu={(m) => setMenu({ x: m.clientX, y: m.clientY, id: m.id })}
+                onGuides={(guides) => editor.updatePage({ guides })}
                 animate={animate}
                 dropTarget={dropTarget}
+                grid={grid}
+                rulers={rulers}
               />
-              <button
-                type="button"
-                onClick={() => setAnimate((a) => !a)}
-                aria-pressed={animate}
-                title="Play animations while editing"
-                className={`press focus-ring absolute top-3 right-3 rounded-xl px-3 py-1.5 text-[11.5px] font-medium ${animate ? "bg-accent/25 text-white" : "glass-chrome text-muted hover:text-ink"}`}
-              >
-                {animate ? "⏸ Animations on" : "▶ Animations off"}
-              </button>
+              <CanvasToolbar grid={grid} setGrid={setGrid} rulers={rulers} setRulers={setRulers} animate={animate} setAnimate={setAnimate} onPalette={() => setPalette(true)} />
             </div>
             <BottomBar
               project={project}
@@ -584,9 +769,18 @@ export default function App() {
             page={page}
             pageIndex={pageIndex}
             selected={selected}
-            update={editor.updateElement}
+            selection={selection}
+            update={(id, patch) => editor.updateElement(id, patch)}
             remove={editor.removeElement}
             duplicate={editor.duplicateElement}
+            updateMany={editor.updateElements}
+            removeMany={editor.removeElements}
+            duplicateMany={editor.duplicateElements}
+            align={editor.align}
+            distribute={editor.distribute}
+            group={editor.group}
+            ungroup={editor.ungroup}
+            vehiclePanel={vehiclePanel}
             updatePage={editor.updatePage}
             setProject={editor.setProject}
             chooseImage={async (elId) => {
@@ -605,10 +799,28 @@ export default function App() {
         </div>
       )}
 
+      {menu && mode === "edit" && <ContextMenu x={menu.x} y={menu.y} items={contextItems(app, menu.id)} onClose={() => setMenu(null)} />}
+      {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} />}
+      {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
+      {vehiclePicker && (
+        <VehiclePicker
+          hangar={hangar}
+          onClose={() => setVehiclePicker(false)}
+          onPick={(v, card) => {
+            setVehiclePicker(false);
+            insertVehicle(v, card);
+          }}
+          onBuild={() => {
+            setVehiclePicker(false);
+            openWorkshop(createVehicle("tank", { name: "My tank" }), "insert");
+          }}
+        />
+      )}
+
       {update && <UpdateGate info={update} />}
 
       {toast && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center">
+        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[80] flex justify-center">
           <div
             key={toast.key}
             role="status"
@@ -625,5 +837,66 @@ export default function App() {
         </div>
       )}
     </div>
+  );
+}
+
+function ToolToggle({ on, onClick, label, Icon, testid }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={on} title={label} aria-label={label} data-testid={testid} className={`press grid size-8 place-items-center rounded-lg ${on ? "bg-accent/25 text-white" : "text-muted hover:bg-white/10 hover:text-ink"}`}>
+      <Icon size={15} />
+    </button>
+  );
+}
+
+function CanvasToolbar({ grid, setGrid, rulers, setRulers, animate, setAnimate, onPalette }) {
+  return (
+    <div className="glass-float absolute top-7 right-3 flex items-center gap-0.5 rounded-xl p-0.5">
+      <ToolToggle on={grid.show} onClick={() => setGrid((g) => ({ ...g, show: !g.show }))} label="Show grid (Ctrl+')" Icon={Grid3x3} testid="toggle-grid" />
+      <ToolToggle on={grid.snap} onClick={() => setGrid((g) => ({ ...g, snap: !g.snap }))} label="Snap to grid" Icon={Magnet} testid="toggle-snap" />
+      <ToolToggle on={rulers} onClick={() => setRulers((r) => !r)} label="Rulers & guides" Icon={Ruler} testid="toggle-rulers" />
+      <ToolToggle on={animate} onClick={() => setAnimate((a) => !a)} label="Play animations while editing" Icon={animate ? Pause : Play} testid="toggle-anim" />
+      <span className="mx-0.5 h-4 w-px bg-white/10" />
+      <button type="button" onClick={onPalette} className="press flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] text-muted hover:bg-white/10 hover:text-ink">
+        <Command size={13} /> <kbd className="kbd-hint">Ctrl K</kbd>
+      </button>
+    </div>
+  );
+}
+
+function VehiclePanel({ el, set, onOpen, onCard }) {
+  return (
+    <Section icon="🪖" title="Vehicle" hint="A live 3D model: it moves in Preview">
+      <button type="button" onClick={onOpen} className="press focus-ring flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-accent to-accent-2 px-3 py-2 text-[12.5px] font-semibold text-[#0b0c12]">
+        <Wrench size={14} /> Open in Workshop
+      </button>
+      <Segmented label="View" value={el.view} onChange={(view) => set({ view })} options={[{ id: "normal", label: "Normal" }, { id: "armor", label: "Armour" }, { id: "xray", label: "X-ray" }]} />
+      <Slider label="Turn" value={el.yaw} min={-180} max={180} onChange={(yaw) => set({ yaw })} format={(v) => `${Math.round(v)}°`} />
+      <Slider label="Camera height" value={el.pitch} min={-5} max={60} onChange={(pitch) => set({ pitch })} format={(v) => `${Math.round(v)}°`} />
+      <Slider label="Zoom" value={el.zoom} min={0.5} max={2.5} step={0.05} onChange={(zoom) => set({ zoom })} format={(v) => `${v.toFixed(2)}×`} />
+      <Toggle label="Animate" hint="Tracks roll, turret scans, gun fires" checked={el.animate} onChange={(animate) => set({ animate })} />
+      <Toggle label="Turntable" hint="Slowly spins around" checked={el.spin} onChange={(spin) => set({ spin })} />
+      <Toggle label="Ground shadow" checked={el.ground} onChange={(ground) => set({ ground })} />
+      <button type="button" onClick={onCard} className="chip-btn">
+        Add a stat card for it
+      </button>
+      <p className="text-[11px] text-muted">Tip: give a button the “Vehicle view” action to flip between normal, armour and X-ray in Preview.</p>
+    </Section>
+  );
+}
+
+function VehiclePicker({ hangar, onPick, onClose, onBuild }) {
+  const [tab, setTab] = useState("presets");
+  const [card, setCard] = useState(false);
+  return (
+    <>
+      <Gallery kind={tab} hangar={hangar} onPick={(v) => onPick(v, card)} onClose={onClose} title={tab === "presets" ? "Add a vehicle" : "Add from your hangar"} />
+      <div className="fixed top-[calc(7vh+4px)] left-1/2 z-[71] flex -translate-x-1/2 items-center gap-2 rounded-xl bg-[#14151f] p-1.5 ring-1 ring-white/10">
+        <Segmented label="Source" value={tab} onChange={setTab} options={[{ id: "presets", label: "Presets" }, { id: "hangar", label: `Hangar (${hangar.list.length})` }]} />
+        <Toggle label="As a stat card" checked={card} onChange={setCard} />
+        <button type="button" onClick={onBuild} className="chip-btn">
+          <Wrench size={14} /> Build your own
+        </button>
+      </div>
+    </>
   );
 }

@@ -23,8 +23,26 @@ export function inlinePlayerSource() {
   return src;
 }
 
+/** Web pages don't carry the 3D engine: vehicles become pictures of each view. */
+async function withVehicleSnapshots(project) {
+  if (!project.pages.some((p) => p.elements.some((e) => e.type === "vehicle"))) return project;
+  const svc = await import("../vehicles3d/service.js");
+  const pages = project.pages.map((pg) => ({
+    ...pg,
+    elements: pg.elements.map((el) => {
+      if (el.type !== "vehicle") return el;
+      const k = Math.min(1.5, 1400 / Math.max(el.w, el.h)) || 1;
+      const shot = (view) => svc.snapshot(el.vehicle, { view, yaw: el.yaw, pitch: el.pitch, zoom: el.zoom, ground: el.ground }, Math.round(el.w * k), Math.round(el.h * k));
+      const { vehicle, ...rest } = el;
+      void vehicle;
+      return { ...rest, snapshots: { normal: shot("normal"), armor: shot("armor"), xray: shot("xray") } };
+    }),
+  }));
+  return { ...project, pages };
+}
+
 export async function buildWebPage(project) {
-  const clean = pruneAssets(project);
+  const clean = await withVehicleSnapshots(pruneAssets(project));
   const fonts = await embeddedFontCss(usedFonts(clean));
   return `<!doctype html>
 <html lang="en">

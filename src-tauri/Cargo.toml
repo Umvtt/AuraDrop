@@ -1,6 +1,6 @@
 [package]
 name = "auradrop"
-version = "0.2.0"
+version = "0.3.0"
 description = "AuraDrop – a playful glassmorphic UI builder"
 authors = ["Umvtt"]
 edition = "2021"

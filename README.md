@@ -6,6 +6,8 @@ Built with **Tauri v2**, **Rust**, **React 19** and **Tailwind CSS v4**.
 
 ## Features
 
+- **Vehicle Workshop (3D):** build tanks from about 70 settings or start from 12 real ones (approximate). Armour view with effective thickness under the cursor, X-ray view of crew/ammo/engine, live stats and battle rating, camo and markings, animation, and a hangar. Put tanks on the canvas live in 3D or as stat cards.
+- **Pro editing:** draggable layers, multi-select, groups, align/spread, rulers and guides, grid snapping, right-click menus, Ctrl+K command palette, crash recovery and recent files.
 - **Templates:** classic meme, two-panel, reaction, soundboard, link hub, quiz, glass card or a blank canvas, in sizes from square posts to phone stories.
 - **Layers:**
   - Text and meme captions, with 11 bundled fonts, outlines, shadows and highlight boxes.
@@ -78,6 +80,9 @@ src/
   player/player.js            renders projects and runs button actions (no imports: it is
                               inlined into exported web pages)
   lib/project.js              project model, templates, validation, 0.1 migration
+  vehicles3d/                 3D vehicle engine (Three.js): spec, tank builder, materials,
+                              decals, stats, presets, shared renderer for the canvas
+  components/workshop/        the Vehicle Workshop and its 3D viewer
   lib/renderPng.js            PNG export (canvas renderer)
   lib/exportHtml.js           self-contained web page export
   lib/fonts.js                bundled fonts

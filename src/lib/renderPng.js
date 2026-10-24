@@ -96,6 +96,10 @@ function frost(ctx, canvas, blur, s) {
 }
 
 const DRAW = {
+  vehicle(ctx, el, { images }) {
+    const img = images.get(`veh:${el.id}`);
+    if (img) ctx.drawImage(img, 0, 0, el.w, el.h);
+  },
   text(ctx, el) {
     const size = el.size;
     ctx.font = `${el.weight} ${size}px ${fontStack(el.font)}`;
@@ -362,6 +366,21 @@ async function loadImages(project, page) {
   if (page.bg.type === "image" && page.bg.asset) ids.add(page.bg.asset);
   for (const el of page.elements) if (el.type === "image" && el.asset) ids.add(el.asset);
   const map = new Map();
+  // 3D vehicles: render a still from the same angle and view.
+  const vehicles = page.elements.filter((e) => e.type === "vehicle" && !e.hidden);
+  if (vehicles.length) {
+    const svc = await import("../vehicles3d/service.js");
+    for (const el of vehicles) {
+      const k = Math.min(2, 1600 / Math.max(el.w, el.h)) || 1;
+      const url = svc.snapshot(el.vehicle, { view: el.view, yaw: el.yaw, pitch: el.pitch, zoom: el.zoom, ground: el.ground }, Math.round(el.w * k), Math.round(el.h * k));
+      await new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => (map.set(`veh:${el.id}`, img), resolve());
+        img.onerror = resolve;
+        img.src = url;
+      });
+    }
+  }
   await Promise.all(
     [...ids].map(
       (id) =>

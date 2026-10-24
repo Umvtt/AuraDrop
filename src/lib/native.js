@@ -97,7 +97,7 @@ export async function checkUpdate() {
   if (!isTauri) {
     const v = new URLSearchParams(location.search).get("mockUpdate");
     return v
-      ? { version: v, current: "0.2.0", notes: "• New stickers\n• Faster export", pageUrl: "https://github.com/Umvtt/AuraDrop/releases", downloadUrl: "", size: 6_000_000, sha256: null }
+      ? { version: v, current: "0.3.0", notes: "• New stickers\n• Faster export", pageUrl: "https://github.com/Umvtt/AuraDrop/releases", downloadUrl: "", size: 6_000_000, sha256: null }
       : null;
   }
   try {

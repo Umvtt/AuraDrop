@@ -1,4 +1,5 @@
 import { FONT_STACKS } from "../player/player.js";
+import { createVehicle, sanitizeVehicle } from "../vehicles3d/spec.js";
 
 // AuraDrop projects: a canvas with pages, each holding layered elements
 // (text, images, stickers, shapes, glass panels, buttons). Buttons – or any
@@ -37,7 +38,7 @@ export const FONTS = [
   { id: "JetBrains Mono", label: "Mono", weights: [400, 700, 800] },
 ].map((f) => ({ ...f, css: FONT_STACKS[f.id] }));
 
-export const ELEMENT_TYPES = ["text", "sticker", "image", "shape", "glass", "button"];
+export const ELEMENT_TYPES = ["text", "sticker", "image", "shape", "glass", "button", "vehicle"];
 export const SHAPES = ["rect", "ellipse", "triangle", "star", "heart", "bubble", "arrow"];
 export const ANIMATIONS = [
   { id: "none", label: "None" },
@@ -59,6 +60,7 @@ export const ACTION_TYPES = [
   { id: "popup", label: "Show a popup", emoji: "💬" },
   { id: "toggle", label: "Show / hide", emoji: "👁️" },
   { id: "page", label: "Go to page", emoji: "📄" },
+  { id: "view", label: "Vehicle view", emoji: "🔍" },
 ];
 export const BACKGROUNDS = ["mesh", "gradient", "solid", "image"];
 export const BLEND_MODES = ["normal", "screen", "overlay", "soft-light", "color-dodge"];
@@ -72,7 +74,7 @@ export const newId = (prefix = "e") =>
 // Element factories
 // ---------------------------------------------------------------------------
 
-const NAMES = { text: "Text", sticker: "Sticker", image: "Image", shape: "Shape", glass: "Glass panel", button: "Button" };
+const NAMES = { text: "Text", sticker: "Sticker", image: "Image", shape: "Shape", glass: "Glass panel", button: "Button", vehicle: "Vehicle" };
 
 function base(type, props) {
   return {
@@ -89,6 +91,7 @@ function base(type, props) {
     locked: false,
     anim: { type: "none", speed: 1, delay: 0 },
     actions: [],
+    group: null,
     ...props,
   };
 }
@@ -134,6 +137,16 @@ export const DEFAULTS = {
     tint: { colors: ["#8b5cf6", "#ec4899", "#22d3ee"], strength: 0.35, blend: "screen" },
     tilt: true,
   }),
+  vehicle: () => ({
+    vehicle: createVehicle("tank"),
+    view: "normal",
+    yaw: 35,
+    pitch: 12,
+    zoom: 1,
+    spin: false,
+    animate: true,
+    ground: true,
+  }),
   button: () => ({
     label: "Click me",
     icon: "✨",
@@ -156,6 +169,7 @@ const SIZES = {
   shape: [360, 260],
   glass: [640, 420],
   button: [380, 104],
+  vehicle: [760, 440],
 };
 
 /** A new element centred on the canvas. */
@@ -190,7 +204,9 @@ export function createAction(type, project) {
     case "toggle":
       return { type, target: null, mode: "toggle" };
     case "page":
-      return { type, target: project?.pages.length > 1 ? "next" : "next" };
+      return { type, target: "next" };
+    case "view":
+      return { type, target: null, view: "cycle" };
     default:
       return { type };
   }
@@ -214,6 +230,7 @@ export function createPage(name = "Page", bg) {
       drift: 1,
       ...bg,
     },
+    guides: { x: [], y: [] },
     elements: [],
   };
 }
@@ -509,6 +526,57 @@ export const TEMPLATES = [
   },
 ];
 
+TEMPLATES.splice(1, 0,
+  {
+    id: "tank-card",
+    label: "Tank card",
+    emoji: "🪖",
+    hint: "A 3D tank with its stats and BR",
+    size: "card",
+    make: (size) => {
+      const p = createProject({ name: "Tank card", ...size });
+      p.pages[0].bg = { ...p.pages[0].bg, type: "gradient", colors: ["#2b2f1f", "#0b0c12"], angle: 160 };
+      const v = PRESET_FOR_TEMPLATES[0] ?? createVehicle("tank", { name: "My tank" });
+      p.pages[0].elements = vehicleCardFactory ? vehicleCardFactory(v, p.canvas) : [createElement("vehicle", p.canvas, { vehicle: v, name: v.name })];
+      return p;
+    },
+  },
+  {
+    id: "versus",
+    label: "Versus",
+    emoji: "⚔️",
+    hint: "Two tanks face off – click to see armour",
+    size: "wide",
+    make: (size) => {
+      const p = createProject({ name: "Tiger vs Sherman", ...size });
+      const c = p.canvas;
+      const pg = p.pages[0];
+      pg.bg = { ...pg.bg, colors: ["#f97316", "#8b5cf6", "#0ea5e9"] };
+      const [a, b] = PRESET_FOR_TEMPLATES.length ? PRESET_FOR_TEMPLATES : [createVehicle("tank", { name: "Tank A" }), createVehicle("tank", { name: "Tank B" })];
+      const left = createElement("vehicle", c, { vehicle: a, name: a?.name, x: Math.round(c.w * 0.02), y: Math.round(c.h * 0.22), w: Math.round(c.w * 0.46), h: Math.round(c.h * 0.55), yaw: 30 });
+      const right = createElement("vehicle", c, { vehicle: b, name: b?.name, x: Math.round(c.w * 0.52), y: Math.round(c.h * 0.22), w: Math.round(c.w * 0.46), h: Math.round(c.h * 0.55), yaw: 150 });
+      pg.elements.push(
+        left,
+        right,
+        createElement("text", c, { text: "VS", font: "Bangers", weight: 400, size: Math.round(c.h / 5), x: Math.round(c.w * 0.4), w: Math.round(c.w * 0.2), y: Math.round(c.h * 0.36), h: Math.round(c.h * 0.25), anim: { type: "pulse", speed: 1, delay: 0 } }),
+        createElement("text", c, { text: a?.name ?? "", font: "Bebas Neue", weight: 400, size: Math.round(c.h / 12), x: Math.round(c.w * 0.04), w: Math.round(c.w * 0.42), y: Math.round(c.h * 0.08), h: Math.round(c.h / 9) }),
+        createElement("text", c, { text: b?.name ?? "", font: "Bebas Neue", weight: 400, size: Math.round(c.h / 12), x: Math.round(c.w * 0.54), w: Math.round(c.w * 0.42), y: Math.round(c.h * 0.08), h: Math.round(c.h / 9) }),
+        createElement("button", c, { label: "Armour", icon: "🛡️", w: 300, h: 90, size: 30, x: Math.round(c.w * 0.1), y: Math.round(c.h * 0.82), actions: [{ type: "view", target: left.id, view: "cycle" }] }),
+        createElement("button", c, { label: "Armour", icon: "🛡️", w: 300, h: 90, size: 30, x: Math.round(c.w * 0.62), y: Math.round(c.h * 0.82), actions: [{ type: "view", target: right.id, view: "cycle" }] }),
+      );
+      return p;
+    },
+  },
+);
+
+// Filled in by the app (keeps this module free of the stats/card code).
+let vehicleCardFactory = null;
+let PRESET_FOR_TEMPLATES = [];
+export function registerVehicleTemplates(cardFn, presets) {
+  vehicleCardFactory = cardFn;
+  PRESET_FOR_TEMPLATES = presets;
+}
+
 export function makeFromTemplate(templateId, presetId) {
   const t = TEMPLATES.find((x) => x.id === templateId) ?? TEMPLATES[0];
   const preset = CANVAS_PRESETS.find((x) => x.id === (presetId ?? t.size)) ?? CANVAS_PRESETS[0];
@@ -639,6 +707,8 @@ function sanitizeAction(a, pageIds) {
       return { type: "toggle", target: typeof a.target === "string" ? a.target : null, mode: pick(a.mode, ["toggle", "show", "hide"], "toggle") };
     case "page":
       return { type: "page", target: ["next", "prev", "first"].includes(a.target) || pageIds.has(a.target) ? a.target : "next" };
+    case "view":
+      return { type: "view", target: typeof a.target === "string" ? a.target : null, view: pick(a.view, ["cycle", "normal", "armor", "xray"], "cycle") };
     default:
       return null;
   }
@@ -665,6 +735,7 @@ function sanitizeElement(e, pageIds) {
       delay: num(e.anim?.delay, 0, 30, 0),
     },
     actions: Array.isArray(e.actions) ? e.actions.slice(0, 20).map((a) => sanitizeAction(a, pageIds)).filter(Boolean) : [],
+    group: typeof e.group === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(e.group) ? e.group : null,
   };
   const sub = (obj, defaults, rules) =>
     Object.fromEntries(Object.entries(defaults).map(([k, v]) => [k, rules[k] ? rules[k](obj?.[k], v) : v]));
@@ -748,6 +819,18 @@ function sanitizeElement(e, pageIds) {
         tilt: bool(e.tilt, true),
       });
       break;
+    case "vehicle":
+      Object.assign(out, {
+        vehicle: sanitizeVehicle(e.vehicle),
+        view: pick(e.view, ["normal", "armor", "xray"], "normal"),
+        yaw: num(e.yaw, -360, 360, 35),
+        pitch: num(e.pitch, -10, 80, 12),
+        zoom: num(e.zoom, 0.4, 3, 1),
+        spin: bool(e.spin, false),
+        animate: bool(e.animate, true),
+        ground: bool(e.ground, true),
+      });
+      break;
     case "button":
       Object.assign(out, {
         label: str(e.label, d.label, 120),
@@ -785,6 +868,10 @@ function sanitizePage(p, pageIds, index) {
       blur: num(bg.blur, 0, 60, 0),
       orbs: bool(bg.orbs, true),
       drift: num(bg.drift, 0, 3, 1),
+    },
+    guides: {
+      x: Array.isArray(p?.guides?.x) ? p.guides.x.filter((v) => typeof v === "number" && Number.isFinite(v)).slice(0, 50).map((v) => Math.round(v)) : [],
+      y: Array.isArray(p?.guides?.y) ? p.guides.y.filter((v) => typeof v === "number" && Number.isFinite(v)).slice(0, 50).map((v) => Math.round(v)) : [],
     },
     elements: Array.isArray(p?.elements)
       ? p.elements.slice(0, MAX_ELEMENTS).map((e) => sanitizeElement(e, pageIds.set)).filter(Boolean)

@@ -433,6 +433,15 @@ function createPlayer(root, initialProject, options) {
       default: {
         const r = o.renderers && o.renderers[el.type];
         if (r) r(el, inner, { mode: o.mode, animate: o.animate, asset, view: views.get(el.id) });
+        else if (el.snapshots) {
+          // Exported pages: pictures of the vehicle in each view.
+          const img = make("img");
+          img.src = el.snapshots[views.get(el.id) || el.view] || el.snapshots.normal;
+          img.alt = "";
+          img.draggable = false;
+          img.style.cssText = "width:100%;height:100%;object-fit:contain;display:block";
+          inner.append(img);
+        }
         break;
       }
       case "button": {
@@ -622,6 +631,15 @@ function createPlayer(root, initialProject, options) {
             n.wrap.classList.add("ad-enter-fade");
           }
         }
+        return false;
+      }
+      case "view": {
+        const target = page().elements.find((e) => e.id === a.target && e.type === "vehicle");
+        if (!target) return false;
+        const order = ["normal", "armor", "xray"];
+        const cur = views.get(target.id) || target.view || "normal";
+        views.set(target.id, a.view === "cycle" ? order[(order.indexOf(cur) + 1) % 3] : a.view);
+        renderElements();
         return false;
       }
       case "page": {

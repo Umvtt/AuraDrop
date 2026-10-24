@@ -120,6 +120,7 @@ export function TitleBar({
   mode,
   onPreview,
   onEdit,
+  onPalette,
 }) {
   const [maximized, setMaximized] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -165,6 +166,11 @@ export function TitleBar({
         {dirty && <span className="size-1.5 flex-none rounded-full bg-accent" title="Unsaved changes" />}
       </div>
 
+      {(mode === "edit" || mode === "preview") && onPalette && (
+        <button type="button" onClick={onPalette} title="Search every command (Ctrl+K)" className="press focus-ring mr-1 hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-[12px] text-muted hover:bg-white/10 hover:text-ink md:flex">
+          Search commands <kbd className="kbd-hint">Ctrl K</kbd>
+        </button>
+      )}
       {mode === "edit" && (
         <button
           type="button"

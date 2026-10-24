@@ -1,6 +1,6 @@
 [package]
 name = "auradrop-setup"
-version = "0.2.0"
+version = "0.3.0"
 description = "AuraDrop Setup – glass installer for AuraDrop"
 authors = ["Umvtt"]
 edition = "2021"
