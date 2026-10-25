@@ -200,6 +200,8 @@ function textShadow(el) {
  * Curved text: where each character sits on an arc. curve in [-100, 100]:
  * positive bends like a rainbow, negative like a smile. measure(str) → px.
  */
+const NEUTRAL_FILTERS = { brightness: 100, contrast: 100, saturate: 100, hue: 0, grayscale: 0, blur: 0 };
+
 function curveLayout(el, measure) {
   const text = (el.upper ? el.text.toUpperCase() : el.text).replace(/\s*\n\s*/g, " ");
   const chars = Array.from(text);
@@ -435,14 +437,17 @@ function createPlayer(root, initialProject, options) {
         const a = asset(el.asset);
         const masked = el.mask && el.mask !== "none";
         inner.classList.add("ad-img");
+        // The sticker outline and shadow sit on the outer box so its clipping can't cut them off.
+        const outline = el.outline?.width > 0 ? imageFilter(NEUTRAL_FILTERS, el.outline) : "";
         if (masked) {
           // A shape mask: the picture is clipped, the shadow follows the shape.
           inner.style.overflow = "visible";
-          if (el.shadow) inner.style.filter = "drop-shadow(0 18px 24px rgba(0,0,0,.45))";
+          inner.style.filter = [outline, el.shadow ? "drop-shadow(0 18px 24px rgba(0,0,0,.45))" : ""].join(" ").trim() || "";
         } else {
           inner.style.borderRadius = `${el.radius}px`;
           if (el.border.width) inner.style.border = `${el.border.width}px solid ${el.border.color}`;
-          if (el.shadow) inner.style.boxShadow = "0 18px 40px rgba(0,0,0,.45)";
+          if (outline) inner.style.filter = `${outline}${el.shadow ? " drop-shadow(0 18px 24px rgba(0,0,0,.45))" : ""}`;
+          else if (el.shadow) inner.style.boxShadow = "0 18px 40px rgba(0,0,0,.45)";
         }
         if (a) {
           const img = make("img");
@@ -450,7 +455,7 @@ function createPlayer(root, initialProject, options) {
           img.alt = "";
           img.draggable = false;
           img.style.objectFit = el.fit;
-          img.style.filter = imageFilter(el.filters, el.outline);
+          img.style.filter = imageFilter(el.filters);
           if (el.flipX || el.flipY) img.style.transform = `scale(${el.flipX ? -1 : 1}, ${el.flipY ? -1 : 1})`;
           if (masked) {
             const clip = make("div");

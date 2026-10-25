@@ -244,7 +244,7 @@ const DRAW = {
   image(ctx, el, { images, s }) {
     const img = images.get(el.asset);
     if (!img) return;
-    if (el.mask && el.mask !== "none") return drawMaskedImage(ctx, el, img, s);
+    if ((el.mask && el.mask !== "none") || el.outline?.width > 0) return drawMaskedImage(ctx, el, img, s);
     if (el.shadow) outerShadow(ctx, el.w, el.h, Math.min(el.radius, el.w / 2, el.h / 2), "rgba(0,0,0,.45)", 40, 18);
     ctx.save();
     ctx.beginPath();
@@ -406,13 +406,19 @@ const DRAW = {
 
 /** A shadow that, like CSS box-shadow, only shows outside the shape. */
 /** A picture clipped to a shape; drawn off-screen first so the shadow follows the shape. */
+/**
+ * A picture clipped to a shape (a mask, or its rounded box), drawn off-screen
+ * first so the shadow and sticker outline follow the shape and aren't cut off.
+ */
 function drawMaskedImage(ctx, el, img, s) {
-  const r = Math.min(el.w, el.h) * 0.2;
+  const masked = el.mask && el.mask !== "none";
+  const kind = masked ? el.mask : "rect";
+  const r = masked ? Math.min(el.w, el.h) * 0.2 : Math.min(el.radius, el.w / 2, el.h / 2);
   const off = makeCanvas(el.w * s, el.h * s);
   const g = off.getContext("2d");
   g.scale(s, s);
-  g.clip(new Path2D(shapePath(el.mask, el.w, el.h, r)));
-  g.filter = imageFilter(el.filters, el.outline, s);
+  g.clip(new Path2D(shapePath(kind, el.w, el.h, r)));
+  g.filter = imageFilter(el.filters, null, s);
   if (el.flipX || el.flipY) {
     g.translate(el.flipX ? el.w : 0, el.flipY ? el.h : 0);
     g.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
@@ -424,15 +430,18 @@ function drawMaskedImage(ctx, el, img, s) {
     ctx.shadowBlur = 24;
     ctx.shadowOffsetY = 18;
   }
+  if (el.outline?.width > 0) ctx.filter = imageFilter(NEUTRAL, el.outline, s);
   ctx.drawImage(off, 0, 0, el.w, el.h);
   ctx.restore();
   if (el.border.width) {
     ctx.strokeStyle = el.border.color;
     ctx.lineWidth = el.border.width;
     ctx.lineJoin = "round";
-    ctx.stroke(new Path2D(shapePath(el.mask, el.w, el.h, r, el.border.width / 2)));
+    ctx.stroke(new Path2D(shapePath(kind, el.w, el.h, r, el.border.width / 2)));
   }
 }
+
+const NEUTRAL = { brightness: 100, contrast: 100, saturate: 100, hue: 0, grayscale: 0, blur: 0 };
 
 function outerShadow(ctx, w, h, r, color, blur, offsetY) {
   ctx.save();

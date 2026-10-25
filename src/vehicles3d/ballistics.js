@@ -10,10 +10,10 @@ export const SHELLS = {
   AP: { label: "AP", ricochet: 70, normalise: 5, falloff: 0.12, fuse: 0, cone: 16, frags: 14, reach: 2.6 },
   APHE: { label: "APHE", ricochet: 70, normalise: 5, falloff: 0.12, fuse: 1.1, cone: 50, frags: 30, reach: 1.8 },
   APCBC: { label: "APCBC", ricochet: 71, normalise: 5, falloff: 0.11, fuse: 1.1, cone: 48, frags: 30, reach: 1.9 },
-  APDS: { label: "APDS", ricochet: 75, normalise: 0, falloff: 0.07, fuse: 0, cone: 14, frags: 16, reach: 3 },
-  APFSDS: { label: "APFSDS", ricochet: 78, normalise: 0, falloff: 0.04, fuse: 0, cone: 12, frags: 20, reach: 3.6 },
-  HEAT: { label: "HEAT", ricochet: 80, normalise: 0, falloff: 0, fuse: 0, cone: 10, frags: 14, reach: 2.4 },
-  HE: { label: "HE", ricochet: 90, normalise: 0, falloff: 0, fuse: 0, cone: 70, frags: 26, reach: 1.4 },
+  APDS: { slope: 0.5, label: "APDS", ricochet: 75, normalise: 0, falloff: 0.07, fuse: 0, cone: 14, frags: 16, reach: 3 },
+  APFSDS: { slope: 0.25, label: "APFSDS", ricochet: 78, normalise: 0, falloff: 0.04, fuse: 0, cone: 12, frags: 20, reach: 3.6 },
+  HEAT: { slope: 0, label: "HEAT", ricochet: 80, normalise: 0, falloff: 0, fuse: 0, cone: 10, frags: 14, reach: 2.4 },
+  HE: { slope: 0, label: "HE", ricochet: 90, normalise: 0, falloff: 0, fuse: 0, cone: 70, frags: 26, reach: 1.4 },
 };
 
 /** Penetration (mm) of a gun's shell at a distance in metres. */
@@ -98,7 +98,10 @@ export function shoot(built, state, { origin, dir, gun, distance = 500, rnd = Ma
   result.angle = info?.angle ?? 0;
   // Full-calibre shells "bite" and turn slightly towards the normal.
   const angle = Math.max(0, result.angle - shell.normalise);
-  result.effective = effectiveArmor(result.thickness, angle);
+  // Slope effect: steep plates resist more than plain geometry says, most of
+  // all against blunt full-calibre shots; darts and HEAT jets care far less.
+  const slopeFx = 1 + (Math.max(0, angle - 25) ** 1.6 / 500) * (shell.slope ?? 1);
+  result.effective = effectiveArmor(result.thickness, angle) * slopeFx;
   result.end = result.point.clone();
 
   if (result.angle > shell.ricochet && rnd() < 0.85) {
