@@ -1,3 +1,26 @@
+## AuraDrop 0.4.5: move any part, a real X-ray, your own crew
+
+**Move the tank's own parts**
+- Click any part of a vehicle, from the turret, gun and cupola down to a road wheel, a toolbox or an armour plate, and drag it somewhere else (hold Shift to move it up and down).
+- Fine-tune with sliders: position, rotation and size, or hide it. "Select the whole…" jumps from a small part to the bigger one it belongs to. Moves are saved with the vehicle.
+
+**Crew editor**
+- Add up to 8 crew members and choose each person's role, name and height (150 to 200 cm). Seat them in the hull or the turret and nudge their seats.
+- They show up as real people in the X-ray (the loader stands), and shots hit each one individually.
+
+**A much better X-ray**
+- Ammo is stored where it really goes: sponson racks, floor bins, an autoloader carousel, and separate shells and charges for two-piece ammo. Ammo no longer pokes through the hull.
+- Cleaner look: armour as glass with crisp outlines, the running gear as a faint ghost. Point at anything inside to see what it is.
+
+**Tracks, wheels and skirts**
+- Side skirts rebuilt: Schürzen hang straight from brackets with cut-away end plates, rubber skirts are ribbed flaps, armoured skirts are bolted on.
+- Mudguards now continue the track guards instead of floating in front of the tank.
+- Fixed: suspension arms floating away from the wheels, and left-side wheels and idlers spinning backwards while driving.
+
+**Also**
+- Angled armour now resists full-calibre shells more realistically (slope effect), so small guns bounce off sloped fronts.
+- Sticker outlines on pictures are no longer cut off at the edges.
+
 ## AuraDrop 0.4.0: easier editing, duels and more vehicles
 
 **A clearer app**

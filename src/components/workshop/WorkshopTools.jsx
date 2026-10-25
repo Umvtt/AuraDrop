@@ -432,7 +432,6 @@ export function CrewPanel({ vehicle, setCrew }) {
                   </option>
                 ))}
               </select>
-              <input value={m.name} placeholder="Name" maxLength={24} onChange={(e) => update(m.id, { name: e.target.value })} aria-label="Name" className="w-20 rounded-md border border-white/10 bg-[#161722] px-1.5 py-1 text-[11.5px]" />
               <button type="button" aria-label="More" onClick={() => setOpen(open === i ? null : i)} className="rounded-md px-1.5 py-1 text-[11px] text-muted hover:bg-white/10">
                 {open === i ? "▲" : "▼"}
               </button>
@@ -440,6 +439,7 @@ export function CrewPanel({ vehicle, setCrew }) {
                 ✕
               </button>
             </div>
+            <input value={m.name} placeholder="Name (optional)" maxLength={24} onChange={(e) => update(m.id, { name: e.target.value })} aria-label="Name" className="mt-1.5 w-full rounded-md border border-white/10 bg-[#161722] px-2 py-1 text-[11.5px]" />
             <Slider label="Height" value={m.height} min={150} max={200} onChange={(height) => update(m.id, { height })} format={(v) => `${Math.round(v)} cm`} />
             {open === i && (
               <div className="mt-1 flex flex-col gap-2">
