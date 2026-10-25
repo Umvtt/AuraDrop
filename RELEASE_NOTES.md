@@ -1,3 +1,35 @@
+## AuraDrop 0.4.0: easier editing, duels and more vehicles
+
+**A clearer app**
+- New Home screen with tabs: Projects, Templates, Vehicle Workshop and Hangar.
+- Every project saves itself as you work and shows up in Projects with a preview. Rename, duplicate or delete them there. Ctrl+S still saves to your .auradrop file if you opened one.
+- Simple and Pro modes in the editor: Simple hides rulers, grids and fine-tuning; Pro shows everything.
+- A History panel: jump back (or forward) to any change.
+
+**Pictures and text**
+- Crop pictures (with ratio presets) and remove backgrounds by colour: click the background, tune tolerance and soft edge.
+- Shape masks (circle, star, heart, triangle, speech bubble) and sticker outlines for cut-outs.
+- Flip anything (Shift+H / Shift+V) and add mirrored copies across the page; tanks turn to face each other.
+- Curved text: arch it or make it smile.
+- Tank meme stickers: BIAS!, AMMO RACKED, RICOCHET!, -1 TANK, chibi tanks and more.
+
+**Export**
+- Video (MP4 or WebM) and GIF export with all animations, the drifting background and moving 3D tanks.
+
+**Vehicle Workshop**
+- Shoot test: click anywhere on a tank to fire any gun at it. Real plate angles, ricochets, penetration and fragments that knock out crew, engine, fuel and ammo racks.
+- 3D duels: two tanks face off, aim, fire, reload and trade shots until one is knocked out.
+- Hit camera: an X-ray picture of every shot. Save it or put it on your canvas.
+- Tank sounds: guns, ricochets, hits, explosions and engines (M to mute).
+- Photo mode: six scenes, sun and lens controls, wallpaper-size photos.
+- 3D planes (Spitfire, Bf 109, P-51, Zero, Fw 190, Corsair, Stuka, Il-2, MiG-15, Sabre) and cars (eight styles), all fully customisable.
+- New tanks: Tiger II, Jagdpanther, T-54, Centurion, Type 10 and Merkava.
+- Place parts by hand: armour plates, reactive armour, jerrycans, logs, machine guns, flags and more. Click to place, drag to move, mirror to the other side.
+- Random builds for planes and cars too; joke stats on stat cards.
+
+**Fixes**
+- Curved turrets no longer break into stray triangles; the Versus template's tanks now really face each other.
+
 ## AuraDrop 0.3.0: the Vehicle Workshop
 
 **New: a 3D Vehicle Workshop for tank fans**
