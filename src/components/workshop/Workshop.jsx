@@ -10,7 +10,7 @@ import { HangarIcon, TankIcon, XrayIcon } from "../icons.jsx";
 import { isMuted, setMuted } from "../../vehicles3d/sound.js";
 import { Arena } from "./Arena.jsx";
 import { Viewer3D } from "./Viewer3D.jsx";
-import { DuelPanel, HitLog, PartsPanel, PhotoPanel, PhotoResult, RESOLUTIONS, TestPanel } from "./WorkshopTools.jsx";
+import { DuelPanel, HitLog, PartsPanel, PhotoPanel, PhotoResult, RESOLUTIONS, TestPanel, UnitPanel } from "./WorkshopTools.jsx";
 
 const TOOLS = [
   { id: "build", label: "Build", Icon: Wrench },
@@ -54,6 +54,29 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
   // Hand-placed parts.
   const [placing, setPlacing] = useState(null);
   const [selectedPart, setSelectedPart] = useState(null);
+  // The vehicle's own parts (see tweaks.js).
+  const [selectedUnit, setSelectedUnit] = useState(null);
+  const [unitInfo, setUnitInfo] = useState(null);
+  const setTweak = (key, t) => set((v) => ({ ...v, preset: null, tweaks: { ...v.tweaks, [key]: t } }));
+  const resetTweak = (key) =>
+    set((v) => {
+      const next = { ...v.tweaks };
+      delete next[key];
+      return { ...v, tweaks: next };
+    });
+  const selectUnit = (key, info) => {
+    setSelectedUnit(key);
+    if (info !== undefined) setUnitInfo(info);
+    if (key) setSelectedPart(null);
+  };
+  useEffect(() => {
+    // Ask the viewer for the part's name once it's built.
+    const t = setTimeout(() => {
+      const info = selectedUnit ? viewer.current?.unitInfo(selectedUnit) : null;
+      if (info || !selectedUnit) setUnitInfo(info ?? null);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [selectedUnit, vehicle]);
   const setParts = (fn) => set((v) => ({ ...v, preset: null, addons: fn(v.addons) }));
   const updatePart = (id, patch) => setParts((list) => list.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   const removePart = (id) => {
@@ -74,7 +97,13 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
         ? {
             placing,
             selectedId: selectedPart,
-            onSelect: setSelectedPart,
+            onSelect: (id) => {
+              setSelectedPart(id);
+              if (id) setSelectedUnit(null);
+            },
+            selectedUnit,
+            onSelectUnit: selectUnit,
+            onMoveUnit: (key, t) => setTweak(key, t),
             onPlace: (pl, more) => {
               const def = ADDONS.find((d) => d.id === placing);
               const id = addonId();
@@ -86,7 +115,7 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tool, placing, selectedPart],
+    [tool, placing, selectedPart, selectedUnit],
   );
   const [muted, setMutedState] = useState(isMuted);
   // Shoot test & duel.
@@ -158,13 +187,14 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
       else if (k === "m") setMutedState((m) => (setMuted(!m), !m));
       else if ((k === "delete" || k === "backspace") && selectedPart) removePart(selectedPart);
       else if ((e.ctrlKey || e.metaKey) && k === "d" && selectedPart) (e.preventDefault(), duplicatePart(selectedPart));
-      else if (k === "escape" && (placing || selectedPart)) (setPlacing(null), setSelectedPart(null));
+      else if (k === "escape" && (placing || selectedPart || selectedUnit)) (setPlacing(null), setSelectedPart(null), setSelectedUnit(null));
+      else if (k === "h" && selectedUnit) setTweak(selectedUnit, { ...(vehicle.tweaks?.[selectedUnit] ?? { pos: [0, 0, 0], rot: [0, 0, 0], scale: 1 }), hidden: !vehicle.tweaks?.[selectedUnit]?.hidden });
       else if (k === "escape" && gallery) setGallery(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undo, redo, gallery, selectedPart, placing, vehicle]);
+  }, [undo, redo, gallery, selectedPart, placing, vehicle, selectedUnit]);
 
   const onArmorHover = useCallback((info) => setArmor(info), []);
   const applyPaint = (p) =>
@@ -268,6 +298,17 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
             {tool === "test" && <TestPanel vehicle={vehicle} hangar={hangar} weapon={weapon} setWeapon={setWeapon} distance={testDistance} setDistance={setTestDistance} onReset={() => (setTestKey((k) => k + 1), setEntries([]))} />}
             {tool === "duel" && <DuelPanel vehicle={vehicle} opponent={opponent} onPickOpponent={() => setGallery("opponent-presets")} distance={duelDistance} setDistance={setDuelDistance} speed={speed} setSpeed={setSpeed} onFight={startFight} status={duelStatus} score={score} />}
             {tool === "photo" && <PhotoPanel photo={photo} setPhoto={setPhoto} onShoot={takePhoto} />}
+            {tool === "build" && selectedUnit && (
+              <UnitPanel
+                info={unitInfo}
+                tweak={vehicle.tweaks?.[selectedUnit]}
+                onChange={(t) => setTweak(selectedUnit, t)}
+                onReset={() => resetTweak(selectedUnit)}
+                onSelect={selectUnit}
+                movedCount={Object.keys(vehicle.tweaks ?? {}).length}
+                onResetAll={() => set((v) => ({ ...v, tweaks: {} }))}
+              />
+            )}
             {tool === "build" && <PartsPanel vehicle={vehicle} placing={placing} setPlacing={setPlacing} selectedId={selectedPart} setSelectedId={setSelectedPart} updatePart={updatePart} removePart={removePart} duplicatePart={duplicatePart} />}
             {tool === "build" && sections.map((sec) => (
               <Section key={sec.id} icon={sec.icon} title={sec.title}>

@@ -247,14 +247,19 @@ function buildHull(spec, lay, M, out) {
   if (D.fenders && !lay.tall) {
     for (const s of [-1, 1]) {
       const z = s * lay.tz;
-      const front = mesh(box(0.65, 0.025, lay.tw + 0.06), M.paintPlain);
-      front.position.set(lay.L / 2 + 0.12, lay.ys - 0.04, z);
-      front.rotation.z = -0.32;
-      g.add(front);
-      const rear = mesh(box(0.4, 0.025, lay.tw + 0.06), M.paintPlain);
-      rear.position.set(-lay.L / 2 - 0.08, lay.ys - 0.01, z);
-      rear.rotation.z = 0.12;
-      g.add(rear);
+      // Mudguards continue the track guard past the hull front and rear, gently bent down.
+      const guard = (x0, x1, drop) => {
+        const y0 = lay.ys - 0.015;
+        const dx = x1 - x0;
+        if (Math.abs(dx) < 0.12) return;
+        const l = Math.hypot(dx, drop);
+        const m = mesh(box(l, 0.022, lay.tw + 0.08), M.paintPlain);
+        m.position.set((x0 + x1) / 2, y0 - drop / 2, z);
+        m.rotation.z = Math.atan2(-drop, dx);
+        g.add(m);
+      };
+      guard(Math.min(lay.frontX(lay.ys), lay.L / 2) - 0.03, lay.L / 2 + 0.22, 0.13);
+      guard(Math.max(lay.rearX(lay.ys), -lay.L / 2) + 0.03, -lay.L / 2 - 0.14, 0.05);
       // Side rail along the track guard.
       g.add(mesh(box(lay.L * 0.95, 0.04, 0.025, 0, lay.ys - 0.02, s * (lay.Wt / 2 + 0.005)), M.paintPlain));
     }
@@ -588,6 +593,7 @@ function buildRunningGear(spec, lay, M, side, out) {
     w.position.set(x, y, zz);
     if (side < 0) w.rotation.y = Math.PI;
     w.userData.r = r;
+    w.userData.part2 = "wheel";
     g.add(w);
     wheels.push(w);
     return w;
@@ -613,6 +619,7 @@ function buildRunningGear(spec, lay, M, side, out) {
       g.add(mesh(box(rw * 1.6, 0.05, 0.12, cx, rollerY + 0.06, bz), M.paintCastPlain));
       const rr = wheel(cx + rw * 0.35, rollerY, 0.11, z, "torsion");
       rr.userData.roller = true;
+      rr.userData.part2 = "roller";
       g.add(mesh(cyl(0.035, 0.035, lay.Wl / 2 - Math.abs(bz) + Math.abs(z), "z", 10).translate(cx, lay.wheelY + rw * 0.8, side * (lay.Wl / 2 + Math.abs(bz)) / 2), M.dark));
     }
   } else {
@@ -630,7 +637,7 @@ function buildRunningGear(spec, lay, M, side, out) {
       wheel(x, lay.wheelY, rw, z - side * lay.tw * 0.22);
     }
     // Suspension arm toward the hull.
-    if (G.style !== "bogie" && !lay.tall) g.add(mesh(box(rw * 0.9, 0.08, 0.06, x - rw * 0.35, lay.wheelY + 0.05, side * (lay.Wl / 2 + 0.04)).rotateZ(0.25), M.dark));
+    if (G.style !== "bogie" && !lay.tall) g.add(mesh(box(rw * 0.9, 0.08, 0.06).rotateZ(0.25).translate(x - rw * 0.35, lay.wheelY + 0.05, side * (lay.Wl / 2 + 0.04)), M.dark));
   });
   // Return rollers.
   const rollerY = lay.trackTop - 0.13;
@@ -638,11 +645,13 @@ function buildRunningGear(spec, lay, M, side, out) {
     const x = x0 + ((x1 - x0) * (i + 0.5)) / G.rollers;
     const r = wheel(x, rollerY, 0.1, z, "torsion");
     r.userData.roller = true;
+    r.userData.part2 = "roller";
   }
   // Sprocket and idler.
   const spr = mesh(sprocketGeometry(rs, lay.tw), M.paintPlain);
   spr.position.set(spX, spY, z);
   spr.userData.r = rs;
+  spr.userData.part2 = "sprocket";
   g.add(spr);
   wheels.push(spr);
   const idler = new THREE.Group();
@@ -654,6 +663,7 @@ function buildRunningGear(spec, lay, M, side, out) {
   }
   idler.position.set(idX, idY, z);
   idler.userData.r = ri;
+  idler.userData.part2 = "idler";
   if (side < 0) idler.rotation.y = Math.PI;
   g.add(idler);
   wheels.push(idler);
@@ -709,33 +719,62 @@ function buildRunningGear(spec, lay, M, side, out) {
   return g;
 }
 
-/** Side skirts hung along the hull. */
+/** Side skirts hung along the hull: Schürzen on brackets, rubber flaps, bolted armour or ERA. */
 function buildSkirts(spec, lay, M) {
   const G = spec.gear;
-  if (G.skirts === "none") return null;
+  const kind = G.skirts;
+  if (kind === "none") return null;
   const g = new THREE.Group();
-  const top = lay.tall ? lay.Hh - 0.1 : lay.ys - 0.02;
-  const bottom = G.skirts === "rubber" || G.skirts === "armour" ? lay.wheelY + 0.05 : lay.trackTop - 0.25;
-  const h = top - bottom;
-  const len = lay.L * 0.88;
-  const panels = G.skirts === "era" ? Math.round(len / 0.32) : Math.round(len / 0.95);
+  g.name = "skirts";
+  const top = lay.tall ? lay.Hh - 0.1 : lay.ys - 0.03;
+  const bottom = { rubber: lay.wheelY + lay.rw * 0.2, armour: lay.wheelY - lay.rw * 0.15, era: lay.wheelY + lay.rw * 0.15, panels: lay.trackTop - 0.32 }[kind] ?? lay.trackTop - 0.3;
+  const h = Math.max(0.16, top - bottom);
+  const len = lay.L * 0.86;
+  const pitch = { era: 0.34, rubber: 0.55, armour: 1.15, panels: 0.95 }[kind] ?? 1;
+  const panels = Math.max(2, Math.round(len / pitch));
   const pw = len / panels;
-  const armor = () => ({ name: G.skirts === "era" ? "Reactive armour" : "Side skirt", t: G.skirtArmor });
+  const thick = kind === "armour" ? Math.min(0.12, Math.max(0.035, G.skirtArmor / 500)) : kind === "era" ? 0.12 : kind === "rubber" ? 0.025 : 0.012;
+  const gap = kind === "panels" ? 0.035 : kind === "rubber" ? 0.03 : 0.01;
+  const standoff = kind === "panels" ? 0.1 : 0.015;
+  const armor = () => ({ name: kind === "era" ? "Reactive armour" : kind === "rubber" ? "Rubber skirt" : "Side skirt", t: G.skirtArmor });
+  const mat = kind === "rubber" ? M.color("#2f2f2c", { roughness: 0.95 }) : M.paintPlain;
   for (const s of [-1, 1]) {
-    const z = s * (lay.Wt / 2 + 0.05);
-    g.add(mesh(box(len, 0.04, 0.03, 0, top + 0.01, z - s * 0.02), M.dark));
+    const z = s * (lay.Wt / 2 + standoff + thick / 2);
+    const hullZ = s * (lay.Wt / 2 - 0.02);
+    if (kind === "panels") {
+      // Rail on brackets standing off the track guard; the plates hang from it.
+      g.add(mesh(box(len + 0.02, 0.035, 0.03, 0, top + 0.01, z - s * thick), M.dark));
+      for (let i = 0; i <= panels; i++) {
+        const x = -len / 2 + pw * i + (i === 0 ? 0.06 : i === panels ? -0.06 : 0);
+        g.add(mesh(box(0.035, 0.035, Math.abs(z - hullZ), x, top + 0.01, (z + hullZ) / 2), M.dark));
+      }
+    } else if (kind === "rubber" || kind === "armour") {
+      g.add(mesh(box(len, 0.05, thick + 0.02, 0, top - 0.02, z), kind === "rubber" ? M.dark : M.paintPlain, armor));
+    }
     for (let i = 0; i < panels; i++) {
       const x = -len / 2 + pw * (i + 0.5);
-      if (G.skirts === "era") {
-        g.add(mesh(rbox(pw - 0.02, h, 0.12, 0.01, x, top - h / 2, z), M.paintPlain, armor));
-        g.add(merged(bolts([[x - pw * 0.3, top - 0.05, z + s * 0.065], [x + pw * 0.3, top - 0.05, z + s * 0.065]], 0.015, "z"), M.dark));
-      } else {
-        const p = mesh(box(pw - 0.025, h, G.skirts === "armour" ? Math.max(0.02, G.skirtArmor / 1000) : 0.012), G.skirts === "rubber" ? M.rubber : M.paintPlain, armor);
-        p.position.set(x, top - h / 2, z);
-        // Real skirts hang a little crooked.
-        p.rotation.x = s * (0.02 + ((i * 7) % 5) * 0.006);
-        p.rotation.z = (((i * 3) % 4) - 1.5) * 0.004;
-        g.add(p);
+      const w = pw - gap;
+      if (kind === "era") {
+        g.add(mesh(rbox(w, h, thick, 0.012, x, top - h / 2, z), M.paintPlain, armor));
+        g.add(merged(bolts([[x - w * 0.3, top - 0.05, z + s * (thick / 2 + 0.005)], [x + w * 0.3, top - 0.05, z + s * (thick / 2 + 0.005)]], 0.015, "z"), M.dark));
+        continue;
+      }
+      // The end plates have their lower outer corner cut away, like the real thing.
+      const c = Math.min(h * 0.45, w * 0.4);
+      const front = i === panels - 1;
+      const rear = i === 0;
+      const hw = w / 2;
+      const hh = h / 2;
+      const prof = [[-hw + (rear ? c : 0), -hh], [hw - (front ? c : 0), -hh], [hw, -hh + (front ? c : 0)], [hw, hh], [-hw, hh], [-hw, -hh + (rear ? c : 0)]];
+      const p = mesh(sideExtrude(prof, thick, Math.min(0.006, thick / 4)).translate(x, top - h / 2, z), mat, armor);
+      g.add(p);
+      if (kind === "rubber") {
+        // Moulded ribs across each flap.
+        for (const dy of [0.25, 0.5, 0.75]) g.add(mesh(box(w * 0.92, 0.025, 0.012, x, top - h * dy, z + s * (thick / 2 + 0.004)), mat));
+      }
+      if (kind === "armour") {
+        const bz = z + s * (thick / 2 + 0.004);
+        g.add(merged(bolts([[x - w * 0.38, top - 0.08, bz], [x, top - 0.08, bz], [x + w * 0.38, top - 0.08, bz], [x - w * 0.38, top - h + 0.1, bz], [x + w * 0.38, top - h + 0.1, bz]], 0.016, "z"), M.dark));
       }
     }
   }
@@ -1226,6 +1265,7 @@ export function buildTank(v, M) {
   for (const s of [-1, 1]) root.add(buildRunningGear(spec, lay, M, s, out));
   const skirts = buildSkirts(spec, lay, M);
   if (skirts) body.add(skirts);
+  out.skirts = skirts;
   const turret = buildTurret(spec, lay, M, out);
   if (spec.turret.style !== "none") body.add(turret);
   const interior = buildInterior(spec, lay, out);
@@ -1239,13 +1279,21 @@ export function buildTank(v, M) {
 
   // --- animation -------------------------------------------------------------
   let trackOffset = 0;
+  // Moved parts (see tweaks.js) keep their offsets while animating.
+  const tw = (o, kind, i) => {
+    const t = o?.userData.tweak;
+    const b = o?.userData.unit?.base;
+    if (kind === "rot") return (t ? deg(t.rot[i]) : 0) + (b ? b.rot.toArray()[i] : 0);
+    return (t ? t.pos[i] : 0) + (b ? b.pos.toArray()[i] : 0);
+  };
   out.update = (dt, t, anim, cameraPos) => {
     const sp = anim.speed ?? 1;
     if (anim.drive && sp > 0) {
       trackOffset += dt * sp * 1.4;
       for (const tr of out.tracks) {
         tr.place(-trackOffset);
-        for (const w of tr.wheels) w.rotation.z -= (dt * sp * 1.4) / (w.userData.r || 0.4);
+        // Wheels mirrored onto the left side (turned 180°) spin about a flipped axis.
+        for (const w of tr.wheels) w.rotation.z -= ((Math.abs(w.rotation.y) > 1 ? -1 : 1) * dt * sp * 1.4) / (w.userData.r || 0.4);
       }
     }
     if (anim.bob) {
@@ -1263,16 +1311,18 @@ export function buildTank(v, M) {
         const target = Math.atan2(-(cameraPos.z - p.z), cameraPos.x - p.x);
         out.turret.rotation.y += (target - out.turret.rotation.y) * Math.min(1, dt * 2);
       } else out.turret.rotation.y = 0;
+      out.turret.rotation.y += tw(out.turret, "rot", 1);
     }
     if (anim.gun === "elevate") out.gunPivot.rotation.z = Math.sin(t * 0.6) * deg(spec.gun.depression ?? 8) * 0.8 + deg(3);
     else out.gunPivot.rotation.z = 0;
+    out.gunPivot.rotation.z += tw(out.gunPivot, "rot", 2);
     if (anim.gun === "recoil") {
       const k = (t % 5) / 5;
       const kick = k < 0.02 ? k / 0.02 : Math.max(0, 1 - (k - 0.02) / 0.35);
-      out.barrel.position.x = -kick * Math.min(0.5, spec.gun.caliber / 250);
+      out.barrel.position.x = -kick * Math.min(0.5, spec.gun.caliber / 250) + tw(out.barrel, "pos", 0);
       out.fire = k < 0.06;
     } else {
-      out.barrel.position.x = 0;
+      out.barrel.position.x = tw(out.barrel, "pos", 0);
       out.fire = false;
     }
     for (const a of out.antennas) {

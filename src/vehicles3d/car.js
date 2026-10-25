@@ -238,6 +238,8 @@ export function buildCar(v, M) {
       g.position.set(x, wr, s * trackZ);
       g.userData.r = wr;
       g.userData.front = front;
+      g.userData.wheelKey = `${front ? "f" : "r"}${s > 0 ? "r" : "l"}`;
+      (out.carWheels ??= []).push(g);
       root.add(g);
       out.wheels.push(w);
     }

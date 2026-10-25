@@ -361,3 +361,41 @@ export function PartsPanel({ vehicle, placing, setPlacing, selectedId, setSelect
     </Section>
   );
 }
+
+// --- Moving the vehicle's own parts --------------------------------------------------------
+
+/** Offsets for one of the vehicle's own parts (turret, cupola, a wheel, a toolbox…). */
+export function UnitPanel({ info, tweak, onChange, onReset, onSelect, movedCount, onResetAll }) {
+  const t = tweak ?? { pos: [0, 0, 0], rot: [0, 0, 0], scale: 1, hidden: false };
+  const vec = (key, i, v) => onChange({ ...t, [key]: t[key].map((x, j) => (j === i ? v : x)) });
+  return (
+    <Section icon="🛠️" title="Selected part" hint="Drag it in the view to move it (Shift: up and down). Click empty space to deselect.">
+      <div className="flex items-center gap-2" data-testid="unit-panel">
+        <span className="flex-1 truncate text-[13px] font-semibold">{info?.label ?? "Part"}</span>
+        {tweak && (
+          <button type="button" onClick={onReset} className="chip-btn" title="Put it back where it was">
+            <RotateCcw size={13} /> Reset
+          </button>
+        )}
+      </div>
+      {info?.parentKey && (
+        <button type="button" onClick={() => onSelect(info.parentKey)} className="chip-btn self-start" data-testid="unit-parent">
+          Select the whole {info.parentLabel.toLowerCase()} ↑
+        </button>
+      )}
+      {["Forward / back", "Up / down", "Left / right"].map((label, i) => (
+        <Slider key={label} label={label} value={t.pos[i]} min={-3} max={3} step={0.01} onChange={(v) => vec("pos", i, v)} format={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)} m`} />
+      ))}
+      {["Tilt sideways", "Turn", "Tilt forward"].map((label, i) => (
+        <Slider key={label} label={label} value={t.rot[i]} min={-180} max={180} onChange={(v) => vec("rot", i, v)} format={(v) => `${Math.round(v)}°`} />
+      ))}
+      <Slider label="Size" value={t.scale} min={0.2} max={3} step={0.01} onChange={(scale) => onChange({ ...t, scale })} format={(v) => `${Math.round(v * 100)}%`} />
+      <Toggle label="Hide this part" checked={t.hidden} onChange={(hidden) => onChange({ ...t, hidden })} />
+      {movedCount > 0 && (
+        <button type="button" onClick={onResetAll} className="focus-ring self-start text-[11.5px] text-accent hover:underline">
+          Reset all {movedCount} moved part{movedCount > 1 ? "s" : ""}
+        </button>
+      )}
+    </Section>
+  );
+}

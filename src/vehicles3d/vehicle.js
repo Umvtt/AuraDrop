@@ -7,6 +7,7 @@ import { attachAddons } from "./addons.js";
 import { buildCar } from "./car.js";
 import { buildPlane } from "./plane.js";
 import { buildTank } from "./tank.js";
+import { applyTweaks, collectUnits } from "./tweaks.js";
 
 const builders = { tank: buildTank, plane: buildPlane, car: buildCar };
 
@@ -58,6 +59,8 @@ export function buildVehicle(v) {
   const M = makeMaterials(v.spec.paint, { zimmerit: !!v.spec.hull?.zimmerit, metal: isMetal });
   const build = builders[v.kind] ?? buildTank;
   const out = build(v, M);
+  out.units = collectUnits(out, M);
+  applyTweaks(v, out.units);
   attachAddons(v, out, M);
   const root = out.root;
   const meshes = [];

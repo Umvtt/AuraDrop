@@ -445,6 +445,7 @@ export function createVehicle(kind = "tank", extra = {}) {
     approx: false,
     spec: structuredClone({ ...k.defaults, ...SHARED }),
     addons: [],
+    tweaks: {},
   };
   return deepMerge(v, extra);
 }
@@ -565,6 +566,20 @@ export function sanitizeVehicle(input) {
     preset: typeof src.preset === "string" ? src.preset.slice(0, 40) : null,
     approx: src.approx === true,
     spec: sanitizeSpec(kind, src.spec),
+    tweaks: Object.fromEntries(
+      Object.entries(src.tweaks && typeof src.tweaks === "object" ? src.tweaks : {})
+        .filter(([k, t]) => typeof k === "string" && k.length <= 160 && t && typeof t === "object")
+        .slice(0, 400)
+        .map(([k, t]) => [
+          k,
+          {
+            pos: [0, 1, 2].map((i) => num(t.pos?.[i], -10, 10, 0)),
+            rot: [0, 1, 2].map((i) => num(t.rot?.[i], -360, 360, 0)),
+            scale: num(t.scale, 0.1, 5, 1),
+            hidden: t.hidden === true,
+          },
+        ]),
+    ),
     addons: (Array.isArray(src.addons) ? src.addons.slice(0, 200) : [])
       .filter((a) => a && ADDONS.some((d) => d.id === a.type))
       .map((a) => ({
