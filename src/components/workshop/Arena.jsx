@@ -138,7 +138,7 @@ export function Arena({ mode, vehicle, opponent, weapon, distance, fight, speed 
     const t = c.tanks[0];
     const result = shoot(t.built, t.state, { origin, dir, gun: p.weapon, distance: p.distance });
     const deadBefore = Object.entries(t.state.crew).filter(([, a]) => !a).map(([r]) => r);
-    const entry = { id: Date.now() + Math.random(), shooter: "you", targetId: "you", vehicle: t.vehicle, pose: poseOf(t.built), result, deadCrew: deadBefore.filter((r) => !result.damaged.some((d) => d.part.role === r)) };
+    const entry = { id: Date.now() + Math.random(), shooter: "you", targetId: "you", vehicle: t.vehicle, pose: poseOf(t.built), result, deadCrew: deadBefore.filter((r) => !result.damaged.some((d) => (d.part.id ?? d.part.role) === r)) };
     if (p.sound) gunShot(p.weapon.caliber, { distance: p.distance });
     landEffects(c, t, result, 0);
     p.onShot?.(entry);
@@ -214,7 +214,9 @@ export function Arena({ mode, vehicle, opponent, weapon, distance, fight, speed 
       }
     });
     // Reload: slower when the loader is out.
-    const loaderOut = t.state.crew.loader === false;
+    // Slower when every loader is out (or the gunner loads for himself).
+    const loaders = Object.entries(t.state.crewInfo ?? {}).filter(([, i]) => i.role === "loader");
+    const loaderOut = loaders.length > 0 && loaders.every(([id]) => !t.state.crew[id]);
     t.cool = t.reload * (loaderOut ? 1.6 : 1) * (0.92 + Math.random() * 0.16);
   }
 

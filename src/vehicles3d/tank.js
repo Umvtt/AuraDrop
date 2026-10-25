@@ -4,15 +4,9 @@
 import * as THREE from "three";
 import { box, bolts, cyl, deform, deg, latheX, merged, mergeGeometries, mesh, rbox, sideExtrude, topExtrude, tube, V3 } from "./geo.js";
 import { insigniaCanvas, insigniaFor, projectDecal, textCanvas } from "./decals.js";
-import { CREW_ROLES } from "./spec.js";
+import { CREW_ROLES, crewOf } from "./spec.js";
 import { boltRow, fuelDrum, grabHandle, hatch, headlight, liftingHook, louvres, meshScreen, periscope, pistolPort, spareWheel, tailLight, visionSlit, weldBeads } from "./details.js";
 
-const CREW_SETS = {
-  5: ["commander", "gunner", "loader", "driver", "radio"],
-  4: ["commander", "gunner", "loader", "driver"],
-  3: ["commander", "gunner", "driver"],
-  2: ["commander", "driver"],
-};
 
 // ---------------------------------------------------------------------------
 // Layout from the spec
@@ -1102,72 +1096,239 @@ function buildTurret(spec, lay, M, out) {
 // Interior (X-ray)
 // ---------------------------------------------------------------------------
 
-function crewFigure(role) {
-  const color = (CREW_ROLES.find((r) => r[0] === role) ?? CREW_ROLES[1])[2];
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, emissive: color, emissiveIntensity: 0.35 });
+/**
+ * A crew member, facing +x, standing on y = 0. Seated unless `standing`.
+ * `m` = { id, role, name, height (cm) }. Every body part carries the
+ * ballistics tag so fragments can knock them out.
+ */
+function crewFigure(m, standing = false) {
+  const k = m.height / 175;
+  const color = (CREW_ROLES.find((r) => r[0] === m.role) ?? CREW_ROLES[1])[2];
+  const uniform = new THREE.MeshStandardMaterial({ color, roughness: 0.6, emissive: color, emissiveIntensity: 0.3 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xe0b48a, roughness: 0.6, emissive: 0x3a2412, emissiveIntensity: 0.3 });
+  const helmet = new THREE.MeshStandardMaterial({ color: 0x3b3326, roughness: 0.8 });
+  const boots = new THREE.MeshStandardMaterial({ color: 0x1f1a14, roughness: 0.8 });
   const g = new THREE.Group();
-  const body = mesh(new THREE.CapsuleGeometry(0.17, 0.36, 6, 12).translate(0, 0.44, 0), mat, null, { interior: true });
-  const head = mesh(new THREE.SphereGeometry(0.12, 16, 12).translate(0, 0.88, 0), mat, null, { interior: true });
-  body.userData.part = head.userData.part = { kind: "crew", role };
-  g.add(body, head);
-  g.add(mesh(rbox(0.4, 0.08, 0.4, 0.02, -0.02, 0.18, 0), new THREE.MeshStandardMaterial({ color: 0x334155 }), null, { interior: true }));
-  g.userData.role = role;
+  const part = { kind: "crew", role: m.role, id: m.id, name: m.name };
+  const limb = (a, b, r, mat) => {
+    const len = a.distanceTo(b);
+    const geo = new THREE.CapsuleGeometry(r, Math.max(0.01, len), 4, 10);
+    const o = mesh(geo, mat, null, { interior: true });
+    o.position.copy(a).add(b).multiplyScalar(0.5);
+    o.quaternion.setFromUnitVectors(V3(0, 1, 0), b.clone().sub(a).normalize());
+    o.userData.part = part;
+    g.add(o);
+    return o;
+  };
+  const hipY = standing ? 0.92 * k : 0.47 * k;
+  const shoulderY = hipY + 0.52 * k;
+  const lean = standing ? 0.02 : 0.06 * k;
+  // Legs.
+  for (const s of [-1, 1]) {
+    const hip = V3(0, hipY, s * 0.1 * k);
+    if (standing) {
+      const knee = V3(0.03 * k, 0.48 * k, s * 0.1 * k);
+      limb(hip, knee, 0.075 * k, uniform);
+      limb(knee, V3(0, 0.08 * k, s * 0.1 * k), 0.06 * k, uniform);
+      g.add(mesh(rbox(0.26 * k, 0.09 * k, 0.11 * k, 0.03, 0.06 * k, 0.045 * k, s * 0.1 * k), boots, null, { interior: true }));
+    } else {
+      const knee = V3(0.44 * k, hipY + 0.04 * k, s * 0.11 * k);
+      limb(hip, knee, 0.078 * k, uniform);
+      limb(knee, V3(0.48 * k, 0.08 * k, s * 0.11 * k), 0.062 * k, uniform);
+      g.add(mesh(rbox(0.26 * k, 0.09 * k, 0.11 * k, 0.03, 0.54 * k, 0.045 * k, s * 0.11 * k), boots, null, { interior: true }));
+    }
+  }
+  // Torso, neck and head with a padded tanker's helmet and headphones.
+  limb(V3(0, hipY + 0.12 * k, 0), V3(lean, shoulderY - 0.06 * k, 0), 0.16 * k, uniform);
+  limb(V3(lean, shoulderY, 0), V3(lean + 0.01, shoulderY + 0.1 * k, 0), 0.05 * k, skin);
+  const head = mesh(new THREE.SphereGeometry(0.105 * k, 18, 14), skin, null, { interior: true });
+  head.position.set(lean + 0.02 * k, shoulderY + 0.2 * k, 0);
+  head.userData.part = part;
+  g.add(head);
+  const hat = mesh(new THREE.SphereGeometry(0.118 * k, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), helmet, null, { interior: true });
+  hat.position.copy(head.position).add(V3(-0.01 * k, 0.015 * k, 0));
+  hat.userData.part = part;
+  g.add(hat);
+  for (const s of [-1, 1]) g.add(mesh(cyl(0.04 * k, 0.04 * k, 0.03 * k, "z", 12).translate(head.position.x, head.position.y, s * 0.11 * k), boots, null, { interior: true }));
+  // Arms: reaching for the controls (or holding a round, for a standing loader).
+  for (const s of [-1, 1]) {
+    const sh = V3(lean, shoulderY - 0.03 * k, s * 0.2 * k);
+    const elbow = V3(lean + 0.16 * k, shoulderY - 0.28 * k, s * 0.22 * k);
+    const hand = standing ? V3(lean + 0.36 * k, shoulderY - 0.22 * k, s * 0.12 * k) : V3(lean + 0.42 * k, shoulderY - 0.3 * k, s * 0.17 * k);
+    limb(sh, elbow, 0.055 * k, uniform);
+    limb(elbow, hand, 0.048 * k, uniform);
+    const h = mesh(new THREE.SphereGeometry(0.045 * k, 10, 8), skin, null, { interior: true });
+    h.position.copy(hand);
+    g.add(h);
+  }
+  if (!standing) {
+    // Seat.
+    g.add(mesh(rbox(0.42 * k, 0.07, 0.42 * k, 0.02, 0.02, hipY - 0.06 * k, 0), new THREE.MeshStandardMaterial({ color: 0x334155 }), null, { interior: true }));
+    g.add(mesh(cyl(0.035, 0.035, Math.max(0.05, hipY - 0.1 * k), "y", 8).translate(0.02, (hipY - 0.1 * k) / 2, 0), new THREE.MeshStandardMaterial({ color: 0x334155 }), null, { interior: true }));
+  }
+  g.userData.role = m.role;
+  g.userData.crewId = m.id;
   return g;
 }
 
 function buildInterior(spec, lay, out) {
   const g = new THREE.Group();
   g.name = "interior";
-  const crew = CREW_SETS[spec.crewPreset] ?? CREW_SETS[5];
+  const crew = crewOf(spec);
   const floor = lay.c + 0.05;
   const fxs = lay.frontX(lay.noseY + 0.2);
-  const hullCrew = { driver: [fxs - 0.75, floor, -lay.Wl * 0.25], radio: [fxs - 0.75, floor, lay.Wl * 0.25] };
-  for (const role of crew) {
-    if (hullCrew[role]) {
-      const f = crewFigure(role);
-      f.position.set(...hullCrew[role]);
-      g.add(f);
-    }
-  }
-  const turretCrew = { commander: [-spec.turret.length * 0.25, -0.75, spec.turret.width * 0.22], gunner: [spec.turret.length * 0.05, -0.85, spec.turret.width * 0.22], loader: [-0.05, -0.85, -spec.turret.width * 0.22] };
   const tParent = spec.turret.style === "none" ? null : out.turret;
-  for (const role of crew) {
-    if (!turretCrew[role]) continue;
-    const f = crewFigure(role);
-    if (tParent) {
-      f.position.set(...turretCrew[role]);
+  const T = spec.turret;
+  const turretRoles = ["commander", "gunner", "loader"];
+  // Seats in order of preference per place; extra crew fill the next free seat.
+  const hullSeats = [[fxs - 0.78, -lay.Wl * 0.24], [fxs - 0.78, lay.Wl * 0.24], [fxs - 1.6, -lay.Wl * 0.24], [fxs - 1.6, lay.Wl * 0.24], [fxs - 2.3, 0]];
+  const turretSeats = { commander: [-T.length * 0.26, T.width * 0.2, -0.18], gunner: [T.length * 0.06, T.width * 0.2, -0.36], loader: [-0.02, -T.width * 0.2, null] };
+  const extraTurret = [[-T.length * 0.28, -T.width * 0.2, -0.3], [T.length * 0.02, 0, -0.4]];
+  const usedHull = new Set();
+  const usedTurret = new Set();
+  let extra = 0;
+  const hullSeat = (m) => {
+    const pref = m.role === "driver" ? 0 : m.role === "radio" ? 1 : 2;
+    for (let i = pref; i < hullSeats.length + pref; i++) {
+      const idx = i % hullSeats.length;
+      if (!usedHull.has(idx)) {
+        usedHull.add(idx);
+        return hullSeats[idx];
+      }
+    }
+    return hullSeats[0];
+  };
+  for (const m of crew) {
+    const inTurret = m.seat === "turret" || (m.seat === "auto" && turretRoles.includes(m.role));
+    const standing = m.role === "loader" && inTurret;
+    const f = crewFigure(m, standing);
+    if (inTurret && tParent) {
+      let seat = !usedTurret.has(m.role) ? turretSeats[m.role] : null;
+      if (seat) usedTurret.add(m.role);
+      else seat = extraTurret[extra++ % extraTurret.length];
+      const k = m.height / 175;
+      // Seated: the seat top sits at `seat[2]` below the turret ring; the standing loader is on the hull floor.
+      const y = standing && seat[2] === null ? floor - lay.Hh : (seat[2] ?? -0.3) - 0.47 * k;
+      f.position.set(seat[0] + m.dx, y, seat[1] + m.dz);
       tParent.add(f);
+    } else if (inTurret) {
+      // No turret (casemate): the fighting compartment behind the drivers.
+      const seat = hullSeat({ role: "extra" });
+      f.position.set(seat[0] + m.dx, floor, seat[1] + m.dz);
+      g.add(f);
     } else {
-      f.position.set(lay.L * 0.05 + turretCrew[role][0], floor, turretCrew[role][2]);
+      const seat = hullSeat(m);
+      f.position.set(seat[0] + m.dx, floor, seat[1] + m.dz);
       g.add(f);
     }
   }
-  // Ammunition: rounds racked in the sponsons and the hull floor.
+  // Ammunition, stowed where it really goes and always inside the hull:
+  // an autoloader carousel under the turret, racks in the sponsons and
+  // upright floor bins beside the turret basket. Two-piece ammo stows the
+  // projectiles and the propellant charges separately.
   const cal = spec.gun.caliber / 1000;
-  const caseLen = Math.min(1.1, cal * 6.5);
-  const shellG = mergeGeometries([cyl(cal * 0.75, cal * 0.75, caseLen, "x", 10), cyl(cal * 0.5, cal * 0.15, cal * 3.2, "x", 10).translate(caseLen / 2 + cal * 1.6, 0, 0)].map((x) => stripAttrs(x.toNonIndexed())));
+  const twoPiece = spec.gun.loading === "separate" || spec.gun.loading === "autoloader";
+  const caseLen = Math.min(twoPiece ? 0.75 : 1.1, cal * (twoPiece ? 5 : 6.5));
+  const projLen = cal * 3.6;
+  const roundLen = twoPiece ? projLen : caseLen + projLen;
+  const r = cal * 0.75;
   const brass = new THREE.MeshStandardMaterial({ color: 0xd6a640, metalness: 0.85, roughness: 0.3, emissive: 0x3a2a08 });
-  const shown = Math.min(spec.ammo, 64);
-  const inst = new THREE.InstancedMesh(shellG, brass, shown);
-  inst.userData.interior = true;
-  const d = new THREE.Object3D();
-  const perRow = Math.max(1, Math.floor((lay.L * 0.4) / (cal * 1.8)));
-  for (let i = 0; i < shown; i++) {
-    const side = i % 2 ? 1 : -1;
-    const j = Math.floor(i / 2);
-    const row = Math.floor(j / perRow);
-    const col = j % perRow;
-    if (!lay.tall && row < 3) {
-      d.position.set(lay.L * 0.15 - col * cal * 1.8, lay.ys + 0.1 + row * cal * 1.7, side * (lay.Wt / 2 - 0.35));
-      d.rotation.set(0, Math.PI / 2, 0);
-    } else {
-      d.position.set(lay.L * 0.1 - col * cal * 1.8, floor + 0.08 + (row % 3) * cal * 1.7, side * (lay.Wl * 0.18));
-      d.rotation.set(0, Math.PI / 2, 0);
+  const tip = new THREE.MeshStandardMaterial({ color: 0x9ca3af, metalness: 0.6, roughness: 0.4, emissive: 0x1f2937 });
+  // One round along +x from its base: a brass case and a projectile (or just the projectile for two-piece ammo).
+  const roundG = twoPiece
+    ? mergeGeometries([cyl(cal * 0.5, cal * 0.5, projLen * 0.7, "x", 10).translate(projLen * 0.35, 0, 0), cyl(cal * 0.5, cal * 0.12, projLen * 0.3, "x", 10).translate(projLen * 0.85, 0, 0)].map((x) => stripAttrs(x.toNonIndexed())))
+    : mergeGeometries([cyl(r, r, caseLen, "x", 10).translate(caseLen / 2, 0, 0), cyl(cal * 0.5, cal * 0.15, projLen, "x", 10).translate(caseLen + projLen / 2, 0, 0)].map((x) => stripAttrs(x.toNonIndexed())));
+  const chargeG = cyl(r, r * 0.9, caseLen, "x", 10).translate(caseLen / 2, 0, 0);
+  const rounds = [];
+  const charges = [];
+  const total = Math.min(spec.ammo, 96);
+  const turretX = out.turret ? out.turret.position.x : -lay.L / 2 + lay.L * T.at;
+  const ringR = Math.min(lay.Wl / 2 - 0.12, T.width * 0.4);
+  const engLen = Math.min(lay.L * 0.25, 0.8 + spec.engine.hp / 1500);
+  const firewall = -lay.L / 2 + 0.35 + engLen + 0.85;
+  const place = (list, x, y, z, ry = 0, rz = 0) => list.push([x, y, z, ry, rz]);
+  let left = total;
+  // 1. Autoloader carousel: rounds lying in a ring on the floor, pointing outwards.
+  if (spec.gun.loading === "autoloader" && left > 0) {
+    const n = Math.min(left, 22);
+    const rr = Math.max(0.25, ringR - roundLen);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      place(rounds, turretX + Math.cos(a) * rr, floor + r + 0.02, Math.sin(a) * rr, -a);
+      place(charges, turretX + Math.cos(a) * rr, floor + r * 3 + 0.04, Math.sin(a) * rr, -a);
     }
-    d.updateMatrix();
-    inst.setMatrixAt(i, d.matrix);
+    left -= n;
   }
-  g.add(inst);
+  // 2. Sponson racks along the hull, both sides, up to three layers.
+  const spInner = lay.Wl / 2 + 0.04;
+  const spOuter = lay.Wt / 2 - 0.1 - Math.tan(deg(spec.hull.sideSlope ?? 0)) * 0.3;
+  const spX0 = firewall;
+  const spX1 = Math.min(lay.frontX(lay.ys + 0.2), lay.L / 2) - 0.25;
+  if (!lay.tall && spOuter - spInner > r * 2.2 && spX1 - spX0 > roundLen + 0.1 && left > 0) {
+    const cols = Math.max(1, Math.floor((spOuter - spInner) / (r * 2.3)));
+    const layers = Math.max(1, Math.min(3, Math.floor((lay.Hh - 0.12 - lay.ys) / (r * 2.3))));
+    const bays = Math.max(1, Math.floor((spX1 - spX0) / (roundLen + 0.12)));
+    for (let b = 0; b < bays && left > 0; b++) {
+      const x = spX0 + b * (roundLen + 0.12);
+      for (const side of [-1, 1]) {
+        for (let L = 0; L < layers; L++) {
+          for (let c = 0; c < cols && left > 0; c++) {
+            place(rounds, x, lay.ys + 0.04 + r + L * r * 2.3, side * (spInner + r + c * r * 2.3));
+            left--;
+          }
+        }
+        // Rack frame.
+        g.add(mesh(box(roundLen + 0.06, 0.025, spOuter - spInner, x + roundLen / 2, lay.ys + 0.03, side * (spInner + spOuter) / 2), new THREE.MeshStandardMaterial({ color: 0x475569 }), null, { interior: true }));
+      }
+    }
+  }
+  // 3. Floor bins: rounds standing upright beside the turret basket.
+  if (left > 0) {
+    const pitch = r * 2.4;
+    const binZ = Math.max(ringR * 0.55, lay.Wl / 2 - 0.25);
+    const maxH = lay.Hh - floor - 0.1;
+    const upright = roundLen + (twoPiece ? 0 : 0) < maxH;
+    const perSide = Math.ceil(left / 2);
+    const rows = Math.max(1, Math.floor(0.36 / pitch));
+    for (let i = 0; i < perSide * 2 && left > 0; i++) {
+      const side = i % 2 ? 1 : -1;
+      const j = Math.floor(i / 2);
+      const col = Math.floor(j / rows);
+      const row = j % rows;
+      const x = turretX - ringR * 0.9 + col * pitch;
+      if (x > turretX + ringR * 1.1) break;
+      const z = side * (binZ - row * pitch);
+      if (upright) place(rounds, x, floor + 0.02, z, 0, Math.PI / 2);
+      else place(rounds, x, floor + r + 0.02, z);
+      left--;
+    }
+  }
+  // Two-piece ammo: charges in bins along the hull floor between the sponsons.
+  if (twoPiece && spec.gun.loading === "separate") {
+    const n = Math.min(rounds.length, 40);
+    for (let i = 0; i < n; i++) {
+      const side = i % 2 ? 1 : -1;
+      const j = Math.floor(i / 2);
+      place(charges, firewall + 0.1 + (j % 5) * (r * 2.3), floor + 0.02, side * (lay.Wl * 0.18 + Math.floor(j / 5) * r * 2.3), 0, Math.PI / 2);
+    }
+  }
+  const instanced = (geo, mat, list) => {
+    if (!list.length) return;
+    const inst = new THREE.InstancedMesh(geo, mat, list.length);
+    inst.userData.interior = true;
+    const d = new THREE.Object3D();
+    list.forEach(([x, y, z, ry, rz], i) => {
+      d.position.set(x, y, z);
+      d.rotation.set(0, ry, rz);
+      d.updateMatrix();
+      inst.setMatrixAt(i, d.matrix);
+    });
+    g.add(inst);
+    return inst;
+  };
+  const shellsInst = instanced(roundG, twoPiece ? tip : brass, rounds);
+  const chargesInst = instanced(chargeG, brass, charges);
+  for (const x of [shellsInst, chargesInst]) if (x) x.userData.part = { kind: "ammo" };
   // Engine, radiators, fuel tanks, transmission.
   const hp = spec.engine.hp;
   const engMat = new THREE.MeshStandardMaterial({ color: 0xf43f5e, roughness: 0.4, metalness: 0.5, emissive: 0x501020 });

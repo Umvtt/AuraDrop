@@ -45,16 +45,20 @@ function partsOf(built) {
 /** A fresh damage state for a vehicle. */
 export function freshState(built) {
   const crew = {};
+  const info = {};
   built.root.traverse((o) => {
     const p = o.userData.part;
-    if (p?.kind === "crew") crew[p.role] = true;
+    if (p?.kind === "crew") {
+      crew[p.id ?? p.role] = true;
+      info[p.id ?? p.role] = { role: p.role, name: p.name };
+    }
   });
-  return { crew, modules: {}, fire: false, ammoRack: false, destroyed: false, hits: 0 };
+  return { crew, crewInfo: info, modules: {}, fire: false, ammoRack: false, destroyed: false, hits: 0 };
 }
 
 const ROLE_LABEL = { commander: "Commander", gunner: "Gunner", loader: "Loader", driver: "Driver", radio: "Radio operator" };
 const MODULE_LABEL = { engine: "Engine", radiator: "Radiator", fuel: "Fuel tank", transmission: "Transmission", ammo: "Ammo rack", breech: "Gun breech" };
-export const partLabel = (p) => (p.kind === "crew" ? ROLE_LABEL[p.role] ?? "Crew" : MODULE_LABEL[p.kind] ?? p.kind);
+export const partLabel = (p) => (p.kind === "crew" ? (p.name ? `${p.name} (${(ROLE_LABEL[p.role] ?? "crew").toLowerCase()})` : ROLE_LABEL[p.role] ?? "Crew") : MODULE_LABEL[p.kind] ?? p.kind);
 
 /** Random direction inside a cone around `dir` (half-angle in degrees). */
 function coneDir(dir, halfDeg, rnd) {
@@ -144,11 +148,12 @@ export function shoot(built, state, { origin, dir, gun, distance = 500, rnd = Ma
     if (h) struck.set(h.object, h.object.userData.part);
   }
   for (const [mesh, part] of struck) {
-    const key = part.kind === "crew" ? `crew:${part.role}` : part.kind;
+    const cid = part.id ?? part.role;
+    const key = part.kind === "crew" ? `crew:${cid}` : part.kind;
     if (part.kind === "crew") {
-      if (!state.crew[part.role]) continue;
+      if (!state.crew[cid]) continue;
       if (rnd() < 0.85) {
-        state.crew[part.role] = false;
+        state.crew[cid] = false;
         result.damaged.push({ part, mesh, path: pathOf(built.root, mesh), state: "dead" });
         result.log.push(`${partLabel(part)} knocked out`);
       } else result.damaged.push({ part, mesh, path: pathOf(built.root, mesh), state: "hurt" });

@@ -97,6 +97,29 @@ export const SHELLS = [
   ["HEAT", "HEAT"],
   ["HE", "HE"],
 ];
+/** Default crews for the crew presets. */
+const CREW_SETS = {
+  5: ["commander", "gunner", "loader", "driver", "radio"],
+  4: ["commander", "gunner", "loader", "driver"],
+  3: ["commander", "gunner", "driver"],
+  2: ["commander", "driver"],
+};
+const CREW_NAMES = ["Hans", "Ivan", "Joe", "Tom", "Kurt", "Pyotr", "Bill", "Otto", "Sasha", "Jim", "Erich", "Alexei"];
+let crewCounter = 0;
+export const crewId = () => `c${Date.now().toString(36)}${(crewCounter++).toString(36)}`;
+const HEIGHTS = [174, 168, 181, 177, 171, 185, 165, 179];
+
+/** A vehicle's crew: its own list, or the preset's default crew. */
+export function crewOf(spec) {
+  if (Array.isArray(spec.crew) && spec.crew.length) return spec.crew;
+  return (CREW_SETS[spec.crewPreset] ?? CREW_SETS[5]).map((role, i) => ({ id: `d${i}`, role, name: "", height: HEIGHTS[i % HEIGHTS.length], seat: "auto", dx: 0, dz: 0 }));
+}
+
+/** A new crew member with a random name and height. */
+export function newCrewMember(role = "loader") {
+  return { id: crewId(), role, name: CREW_NAMES[Math.floor(Math.random() * CREW_NAMES.length)], height: 165 + Math.round(Math.random() * 20), seat: "auto", dx: 0, dz: 0 };
+}
+
 export const CREW_ROLES = [
   ["commander", "Commander", "#facc15"],
   ["gunner", "Gunner", "#f87171"],
@@ -443,7 +466,7 @@ export function createVehicle(kind = "tank", extra = {}) {
     nation: "usa",
     preset: null,
     approx: false,
-    spec: structuredClone({ ...k.defaults, ...SHARED }),
+    spec: structuredClone({ ...k.defaults, ...SHARED, crew: null }),
     addons: [],
     tweaks: {},
   };
@@ -553,6 +576,29 @@ function sanitizeSpec(kind, raw) {
 
 const num = (v, a, b, d) => (typeof v === "number" && Number.isFinite(v) ? clamp(v, a, b) : d);
 
+/** Keep a valid crew list (1–8 people, 150–200 cm tall) on a tank spec. */
+function withCrew(spec, raw) {
+  const list = Array.isArray(raw?.crew) ? raw.crew : null;
+  if (!list?.length) return { ...spec, crew: null };
+  const roles = CREW_ROLES.map((r) => r[0]);
+  const ids = new Set();
+  const crew = list.slice(0, 8).filter((c) => c && typeof c === "object").map((c, i) => {
+    let id = typeof c.id === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(c.id) ? c.id : `m${i}`;
+    if (ids.has(id)) id = `${id}_${i}`;
+    ids.add(id);
+    return {
+      id,
+      role: roles.includes(c.role) ? c.role : "loader",
+      name: typeof c.name === "string" ? c.name.slice(0, 24) : "",
+      height: num(c.height, 150, 200, 175),
+      seat: ["auto", "hull", "turret"].includes(c.seat) ? c.seat : "auto",
+      dx: num(c.dx, -2, 2, 0),
+      dz: num(c.dz, -1.5, 1.5, 0),
+    };
+  });
+  return { ...spec, crew: crew.length ? crew : null };
+}
+
 export function sanitizeVehicle(input) {
   const src = input && typeof input === "object" ? input : {};
   const kind = KINDS.some((k) => k.id === src.kind) ? src.kind : "tank";
@@ -565,7 +611,7 @@ export function sanitizeVehicle(input) {
     nation: NATIONS.some((n) => n.id === src.nation) ? src.nation : "usa",
     preset: typeof src.preset === "string" ? src.preset.slice(0, 40) : null,
     approx: src.approx === true,
-    spec: sanitizeSpec(kind, src.spec),
+    spec: withCrew(sanitizeSpec(kind, src.spec), src.spec),
     tweaks: Object.fromEntries(
       Object.entries(src.tweaks && typeof src.tweaks === "object" ? src.tweaks : {})
         .filter(([k, t]) => typeof k === "string" && k.length <= 160 && t && typeof t === "object")

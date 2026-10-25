@@ -1,3 +1,5 @@
+import { crewOf } from "./spec.js";
+
 // Live stats and battle rating, approximate on purpose (a game, not a simulator).
 
 const SHELL = { AP: 0.92, APHE: 0.95, APCBC: 1, APDS: 1.45, APFSDS: 2.9 };
@@ -47,12 +49,13 @@ export function computeStats(v) {
   const gun = G.caliber * G.caliber * G.length * 3.2e-6 + 0.15;
   const engine = s.engine.hp * (s.engine.kind === "turbine" ? 0.0009 : 0.0018);
   const skirts = s.gear.skirts === "none" ? 0 : plate(L * 0.6 * 2, s.gear.skirtArmor);
-  const crew = CREW[s.crewPreset] ?? 5;
+  const members = crewOf(s);
+  const crew = members.length;
   const mass = (hull + turret + tracks + gun + engine + skirts + s.ammo * 0.022 + s.engine.fuel * 0.00078 + crew * 0.09) * 1.05 + 1;
   const hpt = s.engine.hp / mass;
   const speed = Math.min(85, 13 * Math.sqrt(hpt));
   const pen = penetration(G.caliber, G.length, G.shell);
-  const hasLoader = crew >= 4;
+  const hasLoader = members.some((m) => m.role === "loader");
   let reload = G.loading === "autoloader" ? 4 + G.caliber / 30 : (2.2 + 0.0035 * Math.pow(G.caliber, 1.6)) * (G.loading === "separate" ? 1.8 : 1) * (hasLoader ? 1 : 1.5);
   if (!hasLoader && G.loading !== "autoloader") warnings.push("No loader in the crew: the gunner loads, so reloading is slower.");
   const hullFront = Math.max(eff(H.front, H.frontSlope), eff(H.lower, H.lowerSlope) * 0.9);

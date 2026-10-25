@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { createStage, frameVehicle } from "../../vehicles3d/stage.js";
 import { engineStart, engineStop, gunShot } from "../../vehicles3d/sound.js";
 import { addonParent, moveAddon } from "../../vehicles3d/addons.js";
+import { partLabel } from "../../vehicles3d/ballistics.js";
 import { applyTweak, EMPTY_TWEAK, parentUnit, unitOf } from "../../vehicles3d/tweaks.js";
 import { buildVehicle } from "../../vehicles3d/vehicle.js";
 
@@ -204,6 +205,12 @@ export function Viewer3D({ vehicle, view, playing, onArmorHover, env = "field", 
         c.built.update(0.0001, 0, camera.position);
         c.needsPose = false;
         busy = true;
+      }
+      // X-ray: name whatever is under the cursor (crew, ammo, engine…).
+      if (c.view === "xray" && hoverAt && frame++ % 4 === 0) {
+        ray.setFromCamera(mouse, camera);
+        const hit = ray.intersectObject(c.built.root, true).find((h) => h.object.visible && h.object.userData.part);
+        c.onArmorHover?.(hit ? { xray: true, name: partLabel(hit.object.userData.part), x: hoverAt.x, y: hoverAt.y } : null);
       }
       // Armour readout under the cursor (every few frames).
       if (c.view === "armor" && hoverAt && frame++ % 4 === 0) {

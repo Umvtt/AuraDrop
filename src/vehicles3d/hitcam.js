@@ -59,7 +59,7 @@ export function hitCamImage(vehicle, pose, result, { deadCrew = [], w = 720, h =
   const grey = mat(0x475569);
   copy.root.traverse((o) => {
     const p = o.userData.part;
-    if (p?.kind === "crew" && deadCrew.includes(p.role)) o.material = grey;
+    if (p?.kind === "crew" && deadCrew.includes(p.id ?? p.role)) o.material = grey;
   });
   for (const d of result.damaged ?? []) {
     const m = d.path && resolve(copy.root, d.path);

@@ -10,7 +10,7 @@ import { HangarIcon, TankIcon, XrayIcon } from "../icons.jsx";
 import { isMuted, setMuted } from "../../vehicles3d/sound.js";
 import { Arena } from "./Arena.jsx";
 import { Viewer3D } from "./Viewer3D.jsx";
-import { DuelPanel, HitLog, PartsPanel, PhotoPanel, PhotoResult, RESOLUTIONS, TestPanel, UnitPanel } from "./WorkshopTools.jsx";
+import { CrewPanel, DuelPanel, HitLog, PartsPanel, PhotoPanel, PhotoResult, RESOLUTIONS, TestPanel, UnitPanel } from "./WorkshopTools.jsx";
 
 const TOOLS = [
   { id: "build", label: "Build", Icon: Wrench },
@@ -171,7 +171,9 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
   };
   const stats = useMemo(() => computeStats(vehicle), [vehicle]);
   const sections = useMemo(() => fieldsFor(vehicle.kind), [vehicle.kind]);
-  const change = (key, value) => set((v) => ({ ...v, preset: null, spec: setPath(v.spec, key, value) }));
+  // Picking a crew preset replaces a hand-made crew.
+  const change = (key, value) => set((v) => ({ ...v, preset: null, spec: { ...setPath(v.spec, key, value), ...(key === "crewPreset" ? { crew: null } : {}) } }));
+  const setCrew = (crew) => set((v) => ({ ...v, preset: null, spec: { ...v.spec, crew } }));
 
   useEffect(() => {
     const onKey = (e) => {
@@ -309,6 +311,7 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
                 onResetAll={() => set((v) => ({ ...v, tweaks: {} }))}
               />
             )}
+            {tool === "build" && vehicle.kind === "tank" && <CrewPanel vehicle={vehicle} setCrew={setCrew} />}
             {tool === "build" && <PartsPanel vehicle={vehicle} placing={placing} setPlacing={setPlacing} selectedId={selectedPart} setSelectedId={setSelectedPart} updatePart={updatePart} removePart={removePart} duplicatePart={duplicatePart} />}
             {tool === "build" && sections.map((sec) => (
               <Section key={sec.id} icon={sec.icon} title={sec.title}>
@@ -366,9 +369,9 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
           {armor && (
             <div className="pointer-events-none absolute z-10 rounded-lg bg-[#0b0c12]/90 px-2.5 py-1.5 text-[11.5px] text-white shadow-xl ring-1 ring-white/15" style={{ left: armor.x + 16, top: armor.y + 12 }} data-testid="armor-tip">
               <p className="font-semibold">{armor.name}</p>
-              <p className="font-mono">
+              {!armor.xray && <p className="font-mono">
                 {Math.round(armor.t)} mm at {Math.round(armor.angle)}° → <b className="text-accent-2">{Math.round(armor.effective)} mm</b>
-              </p>
+              </p>}
             </div>
           )}
         </main>

@@ -5,7 +5,7 @@ import { partLabel, penAt, SHELLS } from "../../vehicles3d/ballistics.js";
 import { hitCamImage } from "../../vehicles3d/hitcam.js";
 import { PRESETS3D } from "../../vehicles3d/presets.js";
 import { ENVIRONMENTS } from "../../vehicles3d/stage.js";
-import { ADDONS, NATIONS } from "../../vehicles3d/spec.js";
+import { ADDONS, CREW_ROLES, crewOf, NATIONS, newCrewMember } from "../../vehicles3d/spec.js";
 import { computeStats } from "../../vehicles3d/stats.js";
 import { ColorInput, Section, Segmented, Select, Slider, Toggle } from "../controls.jsx";
 import { VehicleThumb } from "./Workshop.jsx";
@@ -126,9 +126,9 @@ export function DamageCard({ title, state }) {
         {state.destroyed ? <span className="rounded bg-rose-500/80 px-1.5 text-[10px] font-bold">KNOCKED OUT</span> : state.fire ? <span className="rounded bg-orange-500/80 px-1.5 text-[10px] font-bold">ON FIRE</span> : null}
       </div>
       <div className="flex flex-wrap gap-1">
-        {crew.map(([role, alive]) => (
-          <span key={role} className={`rounded-md px-1.5 py-0.5 text-[10.5px] ${alive ? "bg-emerald-500/20 text-emerald-200" : "bg-rose-500/25 text-rose-200 line-through"}`}>
-            {partLabel({ kind: "crew", role })}
+        {crew.map(([id, alive]) => (
+          <span key={id} className={`rounded-md px-1.5 py-0.5 text-[10.5px] ${alive ? "bg-emerald-500/20 text-emerald-200" : "bg-rose-500/25 text-rose-200 line-through"}`}>
+            {partLabel({ kind: "crew", ...(state.crewInfo?.[id] ?? { role: id }) })}
           </span>
         ))}
         {mods.map((m) => (
@@ -396,6 +396,71 @@ export function UnitPanel({ info, tweak, onChange, onReset, onSelect, movedCount
           Reset all {movedCount} moved part{movedCount > 1 ? "s" : ""}
         </button>
       )}
+    </Section>
+  );
+}
+
+// --- Crew editor --------------------------------------------------------------------------
+
+const TANK_ROLES = [
+  ["commander", "Commander"],
+  ["gunner", "Gunner"],
+  ["loader", "Loader"],
+  ["driver", "Driver"],
+  ["radio", "Radio operator / MG"],
+];
+
+/** Who's inside: roles, names, heights (150–200 cm) and where they sit. */
+export function CrewPanel({ vehicle, setCrew }) {
+  const crew = crewOf(vehicle.spec);
+  const custom = Array.isArray(vehicle.spec.crew) && vehicle.spec.crew.length > 0;
+  // Editing a preset crew turns it into the vehicle's own list.
+  const edit = (fn) => setCrew(fn(crew.map((m) => ({ ...m }))));
+  const update = (id, patch) => edit((list) => list.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  const [open, setOpen] = useState(null);
+  return (
+    <Section icon="👥" title="Crew" hint="Everyone inside: role, name, height and seat. Shown in the X-ray and hit by shots.">
+      <div className="flex flex-col gap-1.5" data-testid="crew-panel">
+        {crew.map((m, i) => (
+          <div key={m.id} className="rounded-xl bg-black/25 p-2">
+            <div className="flex items-center gap-1.5">
+              <i className="size-2.5 flex-none rounded-full" style={{ background: CREW_ROLES.find((r) => r[0] === m.role)?.[2] }} />
+              <select value={m.role} onChange={(e) => update(m.id, { role: e.target.value })} aria-label="Role" className="min-w-0 flex-1 rounded-md border border-white/10 bg-[#161722] px-1.5 py-1 text-[11.5px]">
+                {TANK_ROLES.map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <input value={m.name} placeholder="Name" maxLength={24} onChange={(e) => update(m.id, { name: e.target.value })} aria-label="Name" className="w-20 rounded-md border border-white/10 bg-[#161722] px-1.5 py-1 text-[11.5px]" />
+              <button type="button" aria-label="More" onClick={() => setOpen(open === i ? null : i)} className="rounded-md px-1.5 py-1 text-[11px] text-muted hover:bg-white/10">
+                {open === i ? "▲" : "▼"}
+              </button>
+              <button type="button" aria-label={`Remove ${m.name || m.role}`} disabled={crew.length <= 1} onClick={() => edit((list) => list.filter((_, j) => j !== i))} className="rounded-md px-1.5 py-1 text-[12px] text-rose-200 hover:bg-white/10 disabled:opacity-30">
+                ✕
+              </button>
+            </div>
+            <Slider label="Height" value={m.height} min={150} max={200} onChange={(height) => update(m.id, { height })} format={(v) => `${Math.round(v)} cm`} />
+            {open === i && (
+              <div className="mt-1 flex flex-col gap-2">
+                <Segmented label="Seat" value={m.seat} onChange={(seat) => update(m.id, { seat })} options={[{ id: "auto", label: "By role" }, { id: "hull", label: "Hull" }, { id: "turret", label: "Turret" }]} />
+                <Slider label="Seat forward / back" value={m.dx} min={-2} max={2} step={0.01} onChange={(dx) => update(m.id, { dx })} format={(v) => `${v.toFixed(2)} m`} />
+                <Slider label="Seat left / right" value={m.dz} min={-1.5} max={1.5} step={0.01} onChange={(dz) => update(m.id, { dz })} format={(v) => `${v.toFixed(2)} m`} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" disabled={crew.length >= 8} onClick={() => edit((list) => [...list, newCrewMember(list.some((m) => m.role === "loader") ? "radio" : "loader")])} className="chip-btn" data-testid="crew-add">
+          + Add crew member
+        </button>
+        {custom && (
+          <button type="button" onClick={() => setCrew(null)} className="chip-btn" title="Go back to the crew preset">
+            <RotateCcw size={13} /> Preset crew
+          </button>
+        )}
+      </div>
     </Section>
   );
 }

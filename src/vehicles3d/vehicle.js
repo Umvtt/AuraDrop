@@ -72,7 +72,8 @@ export function buildVehicle(v) {
     }
   });
   const xrayMat = new THREE.MeshStandardMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.06, depthWrite: false, roughness: 1, side: THREE.DoubleSide });
-  const edgeMat = new THREE.LineBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.32 });
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.45 });
+  const gearMat = new THREE.MeshStandardMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.035, depthWrite: false, roughness: 1 });
   const armorMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.05 });
   const armorInst = new THREE.MeshStandardMaterial({ color: 0x2a2f3a, roughness: 0.9 });
   const ghostMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4b, roughness: 0.9, transparent: true, opacity: 0.35, depthWrite: false });
@@ -91,6 +92,11 @@ export function buildVehicle(v) {
     view = next;
     clearExtras();
     for (const m of meshes) {
+      // A part the user hid stays hidden in every view.
+      if (m.userData.tweak?.hidden) {
+        m.visible = false;
+        continue;
+      }
       const interior = m.userData.interior;
       m.geometry = m.userData.normalGeo;
       if (interior) {
@@ -119,8 +125,17 @@ export function buildVehicle(v) {
           m.material = armorMat;
         } else m.material = ghostMat;
       } else {
-        m.material = xrayMat;
         m.castShadow = false;
+        // X-ray: armour as glass with outlines, running gear as a faint ghost, small fittings hidden.
+        let gear = false;
+        for (let o = m; o; o = o.parent) if (/^gear-/.test(o.name) || o.name === "skirts") gear = true;
+        if (!m.userData.armor || (m.isInstancedMesh && !gear)) {
+          m.material = gearMat;
+          m.visible = gear;
+          continue;
+        }
+        m.material = gear ? gearMat : xrayMat;
+        if (gear) continue;
         if (!m.isInstancedMesh && m.userData.armor && m.geometry.attributes.position.count < 20000) {
           const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 28), edgeMat);
           e.userData.fxEdge = true;
@@ -174,7 +189,7 @@ export function buildVehicle(v) {
         }
       });
       disposeMaterials(M);
-      for (const m of [xrayMat, edgeMat, armorMat, armorInst, ghostMat]) m.dispose();
+      for (const m of [xrayMat, edgeMat, armorMat, armorInst, ghostMat, gearMat]) m.dispose();
     },
   };
 }

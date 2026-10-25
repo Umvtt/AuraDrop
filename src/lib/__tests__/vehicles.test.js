@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createVehicle, sanitizeVehicle, setPath } from "../../vehicles3d/spec.js";
+import { createVehicle, crewOf, sanitizeVehicle, setPath } from "../../vehicles3d/spec.js";
 import { brStep, computeStats, penetration } from "../../vehicles3d/stats.js";
 import { CARS, PLANES, TANKS } from "../../vehicles3d/presets.js";
 import { createProject, parseProjectFile, serializeProject, makeFromTemplate } from "../project.js";
@@ -26,6 +26,22 @@ describe("3D vehicles", () => {
     const c = Object.fromEntries(CARS.map((v) => [v.preset, v]));
     expect(speed(c.hyper)).toBeGreaterThan(speed(c.jeep));
     for (const v of [...PLANES, ...CARS]) for (const r of computeStats(v).rows) expect(Number.isFinite(r.value)).toBe(true);
+  });
+
+  it("keeps a valid custom crew and part moves", () => {
+    const v = createVehicle("tank");
+    expect(crewOf(v.spec)).toHaveLength(5);
+    const crew = Array.from({ length: 12 }, (_, i) => ({ id: `m${i}`, role: i ? "loader" : "astronaut", name: "x".repeat(40), height: i % 2 ? 230 : 120 }));
+    const s = sanitizeVehicle({ ...v, spec: { ...v.spec, crew }, tweaks: { turret: { pos: [99, 0, 0], rot: [0, 0, 0], scale: 9, hidden: true }, bad: null } });
+    expect(s.spec.crew).toHaveLength(8);
+    expect(s.spec.crew[0].role).toBe("loader");
+    expect(s.spec.crew.every((m) => m.height >= 150 && m.height <= 200 && m.name.length <= 24)).toBe(true);
+    expect(s.tweaks.turret).toEqual({ pos: [10, 0, 0], rot: [0, 0, 0], scale: 5, hidden: true });
+    expect(s.tweaks.bad).toBeUndefined();
+    // Fewer loaders: slower reload.
+    const noLoader = { ...v, spec: { ...v.spec, crew: crewOf(v.spec).filter((m) => m.role !== "loader") } };
+    const reload = (x) => computeStats(x).rows.find((r) => r.key === "reload").value;
+    expect(reload(noLoader)).toBeGreaterThan(reload(v));
   });
 
   it("matches published penetration roughly", () => {
