@@ -3,14 +3,14 @@ import { ArrowLeft, Box, Camera, Crosshair, Dices, Eye, Pause, Play, Redo2, Save
 import { useHistory } from "../../hooks/useHistory.js";
 import { ARMOR_STOPS } from "../../vehicles3d/decals.js";
 import { PRESETS3D } from "../../vehicles3d/presets.js";
-import { fieldsFor, getPath, NATIONS, PAINTS, randomVehicle, setPath, vehicleId } from "../../vehicles3d/spec.js";
+import { ADDONS, addonId, fieldsFor, getPath, NATIONS, PAINTS, randomVehicle, setPath, vehicleId } from "../../vehicles3d/spec.js";
 import { computeStats } from "../../vehicles3d/stats.js";
 import { ColorInput, Section, Segmented, Select, Slider, TextField, Toggle } from "../controls.jsx";
 import { HangarIcon, TankIcon, XrayIcon } from "../icons.jsx";
 import { isMuted, setMuted } from "../../vehicles3d/sound.js";
 import { Arena } from "./Arena.jsx";
 import { Viewer3D } from "./Viewer3D.jsx";
-import { DuelPanel, HitLog, PhotoPanel, PhotoResult, RESOLUTIONS, TestPanel } from "./WorkshopTools.jsx";
+import { DuelPanel, HitLog, PartsPanel, PhotoPanel, PhotoResult, RESOLUTIONS, TestPanel } from "./WorkshopTools.jsx";
 
 const TOOLS = [
   { id: "build", label: "Build", Icon: Wrench },
@@ -51,6 +51,43 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
   const [armor, setArmor] = useState(null);
   const [gallery, setGallery] = useState(null); // "presets" | "hangar" | "opponent-presets" | "opponent-hangar"
   const [tool, setTool] = useState("build");
+  // Hand-placed parts.
+  const [placing, setPlacing] = useState(null);
+  const [selectedPart, setSelectedPart] = useState(null);
+  const setParts = (fn) => set((v) => ({ ...v, preset: null, addons: fn(v.addons) }));
+  const updatePart = (id, patch) => setParts((list) => list.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+  const removePart = (id) => {
+    setParts((list) => list.filter((a) => a.id !== id));
+    setSelectedPart(null);
+  };
+  const duplicatePart = (id) => {
+    const nid = addonId();
+    setParts((list) => {
+      const a = list.find((x) => x.id === id);
+      return a ? [...list, { ...structuredClone(a), id: nid, pos: [a.pos[0] - a.size[0] * 1.1, a.pos[1], a.pos[2]] }] : list;
+    });
+    setSelectedPart(nid);
+  };
+  const parts = useMemo(
+    () =>
+      tool === "build"
+        ? {
+            placing,
+            selectedId: selectedPart,
+            onSelect: setSelectedPart,
+            onPlace: (pl, more) => {
+              const def = ADDONS.find((d) => d.id === placing);
+              const id = addonId();
+              setParts((list) => [...list, { id, type: def.id, on: pl.on, pos: pl.pos, rot: pl.rot, size: [...def.size], mirror: false, color: null, armor: def.armor ?? 0 }]);
+              setSelectedPart(id);
+              if (!more) setPlacing(null);
+            },
+            onMove: (id, patch) => updatePart(id, patch),
+          }
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tool, placing, selectedPart],
+  );
   const [muted, setMutedState] = useState(isMuted);
   // Shoot test & duel.
   const [weapon, setWeapon] = useState(null);
@@ -117,12 +154,17 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
       else if (k === "2") setView("armor");
       else if (k === "3") setView("xray");
       else if (k === "p") setPlaying((p) => !p);
+      else if (k === "m" && selectedPart) updatePart(selectedPart, { mirror: !vehicle.addons.find((a) => a.id === selectedPart)?.mirror });
       else if (k === "m") setMutedState((m) => (setMuted(!m), !m));
+      else if ((k === "delete" || k === "backspace") && selectedPart) removePart(selectedPart);
+      else if ((e.ctrlKey || e.metaKey) && k === "d" && selectedPart) (e.preventDefault(), duplicatePart(selectedPart));
+      else if (k === "escape" && (placing || selectedPart)) (setPlacing(null), setSelectedPart(null));
       else if (k === "escape" && gallery) setGallery(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, gallery]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [undo, redo, gallery, selectedPart, placing, vehicle]);
 
   const onArmorHover = useCallback((info) => setArmor(info), []);
   const applyPaint = (p) =>
@@ -147,7 +189,7 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
           value={vehicle.name}
           onChange={(e) => set((v) => ({ ...v, name: e.target.value.slice(0, 60) }))}
           aria-label="Vehicle name"
-          className="w-56 rounded-lg border border-transparent bg-transparent px-2 py-1 font-display text-[16px] font-semibold outline-none hover:border-white/10 focus:border-accent/60"
+          className="w-40 min-w-0 rounded-lg border min-[1600px]:w-56 border-transparent bg-transparent px-2 py-1 font-display text-[16px] font-semibold outline-none hover:border-white/10 focus:border-accent/60"
         />
         <select value={vehicle.nation} onChange={(e) => set((v) => ({ ...v, nation: e.target.value }))} aria-label="Nation" className="rounded-lg border border-white/10 bg-[#161722] px-2 py-1.5 text-[12px]">
           {NATIONS.map((n) => (
@@ -159,7 +201,7 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
         <span className="mx-1 h-6 w-px bg-white/10" />
         <div className="flex rounded-xl bg-black/25 p-1" role="radiogroup" aria-label="Tool">
           {TOOLS.filter((t) => vehicle.kind === "tank" || t.id === "build" || t.id === "photo").map(({ id, label, Icon }) => (
-            <button key={id} type="button" role="radio" aria-checked={tool === id} data-testid={`tool-${id}`} onClick={() => switchTool(id)} className={`press flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium ${tool === id ? "bg-gradient-to-r from-accent/40 to-accent-2/30 text-white" : "text-muted hover:text-ink"}`}>
+            <button key={id} type="button" role="radio" aria-checked={tool === id} data-testid={`tool-${id}`} onClick={() => switchTool(id)} className={`press flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium whitespace-nowrap ${tool === id ? "bg-gradient-to-r from-accent/40 to-accent-2/30 text-white" : "text-muted hover:text-ink"}`}>
               <Icon size={14} /> {label}
             </button>
           ))}
@@ -168,13 +210,13 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
         <span className="mx-1 h-6 w-px bg-white/10" />
         <div className="flex rounded-xl bg-black/25 p-1" role="radiogroup" aria-label="View">
           {VIEWS.map(({ id, label, Icon }) => (
-            <button key={id} type="button" role="radio" aria-checked={view === id} onClick={() => setView(id)} className={`press flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium ${view === id ? "bg-white/15 text-white" : "text-muted hover:text-ink"}`}>
-              <Icon size={14} /> {label}
+            <button key={id} type="button" role="radio" aria-checked={view === id} title={`${label} view`} onClick={() => setView(id)} className={`press flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium whitespace-nowrap ${view === id ? "bg-white/15 text-white" : "text-muted hover:text-ink"}`}>
+              <Icon size={14} /> <span className="hidden min-[1760px]:inline">{label}</span>
             </button>
           ))}
         </div>
         <button type="button" onClick={() => setPlaying((p) => !p)} className="chip-btn" title="Play animations (P)">
-          {playing ? <Pause size={14} /> : <Play size={14} />} {playing ? "Pause" : "Play"}
+          {playing ? <Pause size={14} /> : <Play size={14} />} <span className="hidden min-[1760px]:inline">{playing ? "Pause" : "Play"}</span>
         </button>
         <button type="button" onClick={undo} disabled={!canUndo} className="chip-btn" aria-label="Undo" title="Undo (Ctrl+Z)">
           <Undo2 size={14} />
@@ -194,13 +236,13 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
         <span className="flex-1" />
         {tool === "build" && <>
         <button type="button" onClick={(e) => set(randomVehicle(e.shiftKey, Math.random, vehicle.kind))} className="chip-btn" title={`Random ${vehicle.kind} (Shift+click for a cursed one)`} data-testid="random-tank">
-          <Dices size={14} /> Random
+          <Dices size={14} /> <span className="hidden min-[1760px]:inline">Random</span>
         </button>
-        <button type="button" onClick={() => setGallery("presets")} className="chip-btn">
-          <Box size={14} /> Presets
+        <button type="button" onClick={() => setGallery("presets")} className="chip-btn" title="Presets">
+          <Box size={14} /> <span className="hidden min-[1500px]:inline">Presets</span>
         </button>
-        <button type="button" onClick={() => setGallery("hangar")} className="chip-btn">
-          <HangarIcon size={14} /> Hangar ({hangar.list.length})
+        <button type="button" onClick={() => setGallery("hangar")} className="chip-btn" title="Your hangar">
+          <HangarIcon size={14} /> <span className="hidden min-[1500px]:inline">Hangar</span> ({hangar.list.length})
         </button>
         <button
           type="button"
@@ -209,11 +251,12 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
             notify(`Saved ${vehicle.name} to your hangar`, "success");
           }}
           className="chip-btn"
+          title="Save to hangar"
         >
-          <Save size={14} /> Save to hangar
+          <Save size={14} /> <span className="hidden min-[1760px]:inline">Save to hangar</span>
         </button>
         </>}
-        <button type="button" onClick={() => onDone(vehicle)} className="press focus-ring rounded-xl bg-gradient-to-r from-accent to-accent-2 px-4 py-2 text-[12.5px] font-semibold text-[#0b0c12] shadow-[0_6px_20px_rgba(167,139,250,0.35)]">
+        <button type="button" onClick={() => onDone(vehicle)} className="press focus-ring rounded-xl bg-gradient-to-r from-accent to-accent-2 px-4 py-2 text-[12.5px] font-semibold whitespace-nowrap text-[#0b0c12] shadow-[0_6px_20px_rgba(167,139,250,0.35)]">
           {context === "edit" ? "Update on canvas" : context === "insert" ? "Add to canvas" : "Make a card"}
         </button>
       </div>
@@ -225,6 +268,7 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
             {tool === "test" && <TestPanel vehicle={vehicle} hangar={hangar} weapon={weapon} setWeapon={setWeapon} distance={testDistance} setDistance={setTestDistance} onReset={() => (setTestKey((k) => k + 1), setEntries([]))} />}
             {tool === "duel" && <DuelPanel vehicle={vehicle} opponent={opponent} onPickOpponent={() => setGallery("opponent-presets")} distance={duelDistance} setDistance={setDuelDistance} speed={speed} setSpeed={setSpeed} onFight={startFight} status={duelStatus} score={score} />}
             {tool === "photo" && <PhotoPanel photo={photo} setPhoto={setPhoto} onShoot={takePhoto} />}
+            {tool === "build" && <PartsPanel vehicle={vehicle} placing={placing} setPlacing={setPlacing} selectedId={selectedPart} setSelectedId={setSelectedPart} updatePart={updatePart} removePart={removePart} duplicatePart={duplicatePart} />}
             {tool === "build" && sections.map((sec) => (
               <Section key={sec.id} icon={sec.icon} title={sec.title}>
                 {sec.id === "paint" && (
@@ -245,7 +289,7 @@ export function Workshop({ initial, context, hangar, onDone, onClose, notify, on
         {/* 3D view */}
         <main className="glass-chrome relative min-w-0 flex-1 overflow-hidden rounded-2xl">
           {(tool === "build" || tool === "photo") && (
-            <Viewer3D ref={viewer} vehicle={vehicle} view={tool === "photo" ? "normal" : view} playing={playing} onArmorHover={onArmorHover} sound={!muted} env={tool === "photo" ? photo.env : "field"} sun={tool === "photo" ? sun : null} fov={tool === "photo" ? photo.fov : 32} />
+            <Viewer3D ref={viewer} vehicle={vehicle} view={tool === "photo" ? "normal" : view} playing={playing} onArmorHover={onArmorHover} sound={!muted} env={tool === "photo" ? photo.env : "field"} sun={tool === "photo" ? sun : null} fov={tool === "photo" ? photo.fov : 32} parts={parts} />
           )}
           {tool === "test" && weapon && <Arena key={`test-${testKey}`} mode="test" vehicle={vehicle} weapon={weapon} distance={testDistance} sound={!muted} onShot={onShot} onState={onState} />}
           {tool === "duel" && <Arena mode="duel" vehicle={vehicle} opponent={opponent} distance={duelDistance} fight={fight} speed={speed} sound={!muted} onShot={onShot} onState={onState} onEnd={onEnd} />}

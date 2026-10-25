@@ -5,9 +5,9 @@ import { partLabel, penAt, SHELLS } from "../../vehicles3d/ballistics.js";
 import { hitCamImage } from "../../vehicles3d/hitcam.js";
 import { PRESETS3D } from "../../vehicles3d/presets.js";
 import { ENVIRONMENTS } from "../../vehicles3d/stage.js";
-import { NATIONS } from "../../vehicles3d/spec.js";
+import { ADDONS, NATIONS } from "../../vehicles3d/spec.js";
 import { computeStats } from "../../vehicles3d/stats.js";
-import { Section, Segmented, Select, Slider } from "../controls.jsx";
+import { ColorInput, Section, Segmented, Select, Slider, Toggle } from "../controls.jsx";
 import { VehicleThumb } from "./Workshop.jsx";
 
 const dataUrlBytes = (url) => Uint8Array.from(atob(url.split(",")[1]), (c) => c.charCodeAt(0));
@@ -274,5 +274,90 @@ export function PhotoResult({ url, onClose, onAddPicture, notify, name }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// --- Hand-placed parts ------------------------------------------------------------------
+
+const PART_ICONS = { Shapes: "🔷", Armour: "🛡️", Stowage: "🎒", Weapons: "🔫", Details: "🔧" };
+
+/** Pick a part, click the vehicle to place it, then tweak or drag it. */
+export function PartsPanel({ vehicle, placing, setPlacing, selectedId, setSelectedId, updatePart, removePart, duplicatePart }) {
+  const cats = [...new Set(ADDONS.map((a) => a.cat))];
+  const [cat, setCat] = useState(cats[0]);
+  const sel = vehicle.addons.find((a) => a.id === selectedId);
+  const def = sel && ADDONS.find((d) => d.id === sel.type);
+  const vec = (key, i, v) => updatePart(sel.id, { [key]: sel[key].map((x, j) => (j === i ? v : x)) });
+  return (
+    <Section icon="🧩" title="Parts" hint="Pick a part, then click on the vehicle to stick it there. Drag placed parts to move them.">
+      <div className="flex flex-wrap gap-1" role="tablist">
+        {cats.map((c) => (
+          <button key={c} type="button" role="tab" aria-selected={cat === c} onClick={() => setCat(c)} className={`rounded-lg px-2 py-1 text-[11px] ${cat === c ? "bg-white/[0.14] text-ink" : "text-muted hover:text-ink"}`}>
+            {PART_ICONS[c]} {c}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {ADDONS.filter((a) => a.cat === cat).map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            data-testid={`part-${a.id}`}
+            onClick={() => setPlacing(placing === a.id ? null : a.id)}
+            className={`press rounded-full border px-2.5 py-1 text-[11px] ${placing === a.id ? "border-accent/70 bg-accent/25 text-ink" : "border-white/10 bg-white/[0.05] text-ink/80 hover:bg-white/[0.1]"}`}
+          >
+            {a.label}
+          </button>
+        ))}
+      </div>
+      {placing && <p className="rounded-lg bg-accent/15 px-2.5 py-1.5 text-[11.5px] text-ink">Click on the vehicle to place it · Shift+click to place more · Esc to stop</p>}
+      {vehicle.addons.length > 0 && (
+        <div className="flex flex-col gap-0.5" data-testid="parts-list">
+          <p className="panel-label mt-1">On this vehicle ({vehicle.addons.length})</p>
+          {vehicle.addons.map((a) => (
+            <button key={a.id} type="button" onClick={() => setSelectedId(a.id)} className={`flex items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] ${a.id === selectedId ? "bg-accent/25" : "hover:bg-white/[0.06]"}`}>
+              <span className="flex-1 truncate">{ADDONS.find((d) => d.id === a.type)?.label}</span>
+              <span className="text-[10.5px] text-muted">
+                {a.on}
+                {a.mirror ? " · ×2" : ""}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {sel && (
+        <div className="flex flex-col gap-2 rounded-xl bg-black/25 p-2.5" data-testid="part-editor">
+          <div className="flex items-center gap-1.5">
+            <span className="flex-1 text-[12.5px] font-semibold">{def?.label}</span>
+            <button type="button" onClick={() => duplicatePart(sel.id)} className="chip-btn" title="Duplicate (Ctrl+D)">
+              Copy
+            </button>
+            <button type="button" onClick={() => removePart(sel.id)} className="chip-btn text-rose-200" title="Delete (Del)">
+              Delete
+            </button>
+          </div>
+          <Toggle label="Mirror to the other side" hint="M" checked={sel.mirror} onChange={(mirror) => updatePart(sel.id, { mirror })} />
+          <Segmented label="Attached to" value={sel.on} onChange={(on) => updatePart(sel.id, { on })} options={[{ id: "hull", label: vehicle.kind === "tank" ? "Hull" : "Body" }, ...(vehicle.kind === "tank" ? [{ id: "turret", label: "Turret" }, { id: "gun", label: "Gun" }] : [])]} />
+          {["Length", "Height", "Width"].map((label, i) => (
+            <Slider key={label} label={label} value={sel.size[i]} min={0.02} max={Math.max(4, def.size[i] * 4)} step={0.01} onChange={(v) => vec("size", i, v)} format={(v) => `${v.toFixed(2)} m`} />
+          ))}
+          {["Tilt forward", "Turn", "Tilt sideways"].map((label, i) => (
+            <Slider key={label} label={label} value={sel.rot[[2, 1, 0][i]]} min={-180} max={180} onChange={(v) => vec("rot", [2, 1, 0][i], v)} format={(v) => `${Math.round(v)}°`} />
+          ))}
+          {["Forward / back", "Up / down", "Left / right"].map((label, i) => (
+            <Slider key={label} label={label} value={sel.pos[i]} min={-8} max={8} step={0.01} onChange={(v) => vec("pos", i, v)} format={(v) => `${v.toFixed(2)} m`} />
+          ))}
+          {def.armor != null || ["box", "cylinder", "wedge", "sphere"].includes(sel.type) ? <Slider label="Armour" value={sel.armor} min={0} max={300} onChange={(armor) => updatePart(sel.id, { armor })} format={(v) => `${Math.round(v)} mm`} /> : null}
+          <div className="flex items-center gap-2">
+            <ColorInput label="Colour" value={sel.color ?? "#4a4f2a"} onChange={(color) => updatePart(sel.id, { color })} />
+            {sel.color && (
+              <button type="button" onClick={() => updatePart(sel.id, { color: null })} className="chip-btn flex-none" title="Use the vehicle's paint">
+                Paint
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </Section>
   );
 }

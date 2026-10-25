@@ -3,6 +3,7 @@
 import * as THREE from "three";
 import { armorColor, effectiveArmor } from "./decals.js";
 import { makeMaterials, disposeMaterials } from "./materials.js";
+import { attachAddons } from "./addons.js";
 import { buildCar } from "./car.js";
 import { buildPlane } from "./plane.js";
 import { buildTank } from "./tank.js";
@@ -57,6 +58,7 @@ export function buildVehicle(v) {
   const M = makeMaterials(v.spec.paint, { zimmerit: !!v.spec.hull?.zimmerit, metal: isMetal });
   const build = builders[v.kind] ?? buildTank;
   const out = build(v, M);
+  attachAddons(v, out, M);
   const root = out.root;
   const meshes = [];
   root.traverse((o) => {
